@@ -6,6 +6,13 @@ No voice knows it is part of a brain. Each one only knows its own temperament an
 
 **Live:** [primbs.ca/tankbrain](https://primbs.ca/tankbrain/) · **Source:** [github.com/dirkprimbs/tankbrain-web](https://github.com/dirkprimbs/tankbrain-web)
 
+![Thirteen voices thinking about "Can God create a stone too heavy for him to lift?": the brain in its tank, with the voices that are thinking right now lit up, and the inner-speech stream on the right](docs/tank.jpg)
+
+<table><tr>
+<td width="50%"><a href="docs/voice-card.jpg"><img src="docs/voice-card.jpg" alt="Hovering a voice shows its card: job, what it reads and writes, its model and what it is doing right now. Behind it, the draft panel says which notes the new version responds to."></a><br><sub><b>A voice up close.</b> Hover any voice for its job, model and current state. The draft panel shows what each new version is a response to.</sub></td>
+<td width="50%"><a href="docs/trace.jpg"><img src="docs/trace.jpg" alt="The draft panel with word-level changes between versions, and the stream showing each edit with the writer's note on what changed and why."></a><br><sub><b>The trace.</b> Every draft version with its word-level changes, the writer's note on why, and the conversation that led to it.</sub></td>
+</tr></table>
+
 This is the static version of Tankbrain. There is no server: the brain runs in your browser, every voice is a model on [OpenRouter](https://openrouter.ai), and everything the app keeps stays in your browser.
 
 ## Run it
