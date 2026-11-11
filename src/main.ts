@@ -122,8 +122,8 @@ api.synth.onProgress = (f) => {
 };
 playBtn.addEventListener("click", async () => {
   player.unlock();
+  if (player.playing) return silence();
   voiceDismissed = false;
-  if (player.playing) return player.stop();
   // the audio recorded with the session if there is any (demos have no key to make new audio)
   if (speechUrls.length) for (const u of speechUrls) player.enqueue(u);
   else if (current) await speakSession(current);
@@ -349,7 +349,10 @@ ui.go.addEventListener("click", inspire);
 ui.input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) inspire();
 });
-ui.stop.addEventListener("click", () => api.stop());
+ui.stop.addEventListener("click", () => {
+  silence(); // stopping the session stops its voice too
+  api.stop();
+});
 
 // --- replay ------------------------------------------------------------
 async function replay(id: string) {
@@ -424,12 +427,16 @@ for (const t of document.querySelectorAll<HTMLElement>("[data-tab-btn]")) {
   t.addEventListener("click", () => (ui.dock.dataset.tab = t.dataset.tabBtn));
 }
 // closing the reply stops the voice; minimizing it lets the voice go on
-let voiceDismissed = false; // closed this reply: later chunks of it are not played either
+let voiceDismissed = false; // stopped or closed this reply: later chunks of it are not played either
+/** Stop the spoken reply for good: chunks of it still being made or replayed aren't played either. */
+function silence() {
+  voiceDismissed = true;
+  player.stop();
+}
 function closeReply() {
   replySize("");
   ui.replyCard.classList.remove("show");
-  voiceDismissed = true;
-  player.stop();
+  silence();
 }
 $("reply-close").addEventListener("click", closeReply);
 // minimize to the title bar / maximize to a large reading view

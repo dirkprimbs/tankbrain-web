@@ -3,6 +3,10 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.1.1 · 2026-11-11
+
+- Fixed: ■ stop on the spoken reply stopped only the current sentence; the rest of the reply kept coming. Now it stops the whole reply, and stopping the session silences it too.
+
 ## 1.1.0 · 2026-11-11 · Punchier stories
 
 - Norbert likes to keep a story short and punchy, and to end it on a punchline or a twist.
