@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TANKBRAIN</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='12' fill='none' stroke='%2300e5ff' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%23ff4fd8'/></svg>" />
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div class="scanlines"></div>
+
+    <header class="topbar">
+      <div class="logo"><b>TANKBRAIN</b><span>INNER SPEECH</span></div>
+      <div class="hud">
+        <span id="mode" class="mode idle" title="What the tank is doing.
+STANDBY: nothing running; ask a question or replay a session.
+LIVE: a session is running right now.
+REPLAY: playing back a recorded session.">STANDBY</span>
+        <div class="stat" title="Stage of the session.
+THINKING: voices take turns on the boards.
+WRAPPING UP: everyone hears 'time is nearly up'; the draft is finished and checked by the Inhibitor.
+SPEAKING: the Voice says the approved answer.
+DONE: the reply has been given."><label>PHASE</label><b id="phase">—</b></div>
+        <div class="stat" title="Cognitive cycle: one round in which the voices with something new to read get a turn (at most a few per cycle).
+Shown as current / limit; thinking stops at the limit at the latest."><label>CYCLE</label><b id="cycle">0</b></div>
+        <div class="stat energy" title="Energy: how much drive is left to keep thinking.
+It fades every cycle, rises a little with fresh ideas, and follows the Motivator's interest.
+When it drops below the marker, thinking stops and the wrap-up begins."><label>ENERGY</label><div class="bar"><i id="energy-bar"></i><em id="energy-mark"></em></div><b id="energy-val">100%</b></div>
+        <div class="stat wide" title="Floor: the voices thinking right now (with one voice, also its model). A cycle moves on once all of them have answered."><label>FLOOR</label><b id="model">—</b></div>
+      </div>
+      <button id="reply-show" class="mute-btn reply-btn" title="No reply yet" disabled>💬</button>
+      <button id="mute" class="mute-btn" title="Spoken replies: on (click to mute)">🔊</button>
+      <button id="about" class="settings-btn" title="What this project is and where it comes from">? WHAT IS THIS</button>
+      <button id="settings" class="settings-btn" title="Settings: OpenRouter key, parallelism, speech and stored data (all kept in this browser)">⚙ SETTINGS</button>
+    </header>
+
+    <aside class="panel left">
+      <section class="card">
+        <h2>INSPIRATION</h2>
+        <select id="examples" class="examples" title="example prompts: pick one to fill the box"></select>
+        <textarea id="inspiration" rows="4" placeholder="A question or idea pops up…  (Ctrl+Enter)"></textarea>
+        <div class="row">
+          <select id="profile" title="model profile"></select>
+          <button id="go" class="primary">INSPIRE ▶</button>
+          <button id="stop" class="ghost" disabled>■</button>
+        </div>
+        <div id="question" class="question"></div>
+      </section>
+      <section class="card grow">
+        <h2>FILTER VOICES</h2>
+        <div id="chips" class="chips"></div>
+        <div id="toggles" class="toggles"></div>
+        <p class="hint">Chips: click to hide/show, shift-click to solo, alt-click to configure. On the brain: hover a voice for its card, click to adjust it.</p>
+        <button id="configure" class="configure">⚙ CONFIGURE VOICES</button>
+      </section>
+      <section class="card sessions-card">
+        <h2>SESSIONS <small>· <b id="mem-count">0</b> memories</small></h2>
+        <div class="row tight">
+          <label class="small">replay speed</label>
+          <select id="speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="10">10×</option><option value="instant">instant</option></select>
+          <button id="import" class="ghost small-btn" title="Add a session file (exported with ⤓)">import…</button>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+        </div>
+        <div id="sessions" class="sessions"></div>
+      </section>
+    </aside>
+
+    <aside class="panel right">
+      <section class="card grow">
+        <h2>INNER SPEECH</h2>
+        <div id="stream" class="stream"></div>
+      </section>
+    </aside>
+
+    <section id="dock" class="dock" data-tab="draft">
+      <nav>
+        <button data-tab-btn="draft">DRAFT <span id="draft-ver">v0</span></button>
+        <button data-tab-btn="notebook">NOTEBOOK</button>
+      </nav>
+      <div class="tab draft">
+        <div class="draft-bar">
+          <input id="draft-slider" type="range" min="1" max="1" value="1" />
+          <label class="small changes"><input id="draft-changes" type="checkbox" checked /> show changes</label>
+        </div>
+        <div id="draft-meta" class="draft-meta"></div>
+        <pre id="draft-text">— no draft yet —</pre>
+      </div>
+      <div class="tab notebook"><div id="notebook"><div class="empty">— empty —</div></div></div>
+    </section>
+
+    <section id="reply-card" class="reply-card">
+      <h2>SPOKEN REPLY <button id="reply-play" class="ghost play-btn" title="Hear the reply">▶ hear it</button><button id="reply-min" class="ghost" title="Minimize">–</button><button id="reply-max" class="ghost" title="Maximize">□</button><button id="reply-close" class="ghost" title="Close">×</button></h2>
+      <div id="reply"></div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

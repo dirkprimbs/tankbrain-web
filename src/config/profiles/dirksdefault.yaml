@@ -1,0 +1,17 @@
+# Dirk's default: the best finds from the first OpenRouter runs, everything
+# else on Gemini 3.8 Flash (fast, follows narrow instructions well).
+#   kept: Logician on GLM 5.3 Flash with thinking (1-2 s, correct, concise),
+#         Storyteller and Inhibitor on Gemma 4 26B (on brief, sound verdicts).
+# Voices that judge other voices' work run on a different model family from
+# the work they judge (a model goes easy on its own kind):
+#   Critic (reviews the Drafter's Gemini drafts) and Curator (picks among the
+#   Associator's and Inventor's Gemini ideas) on GLM 5.3 Flash; the Inhibitor
+#   (final check) on Gemma.
+default:
+  model: google/gemini-3.8-flash
+agents:
+  Logician: {model: z-ai/glm-5.3-flash, think: true}
+  Critic: {model: z-ai/glm-5.3-flash}
+  Curator: {model: z-ai/glm-5.3-flash}
+  Storyteller: {model: google/gemma-4-26b-a4b-it}
+  Inhibitor: {model: google/gemma-4-26b-a4b-it}

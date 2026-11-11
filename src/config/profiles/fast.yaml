@@ -1,0 +1,6 @@
+# Every voice on one small, fast model. Useful as a baseline to see what
+# model diversity adds.
+default:
+  model: google/gemini-2.5-flash-lite
+agents:
+  Logician: {think: false}

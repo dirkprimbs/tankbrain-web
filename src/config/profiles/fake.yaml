@@ -1,0 +1,5 @@
+# Used by tests with the scripted FakeLLM.
+default:
+  model: fake
+cycle:
+  max_seconds: 30

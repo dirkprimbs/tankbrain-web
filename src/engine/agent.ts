@@ -1,0 +1,249 @@
+// One voice: builds its (deliberately narrow) context, its response schema,
+// and normalises what the model says into actions.
+//
+// Nothing in here tells an agent that it is part of a brain. It knows its
+// persona, the notes it follows, its private messages, the memory views it is
+// granted, and the names + one-line descriptions of whom it can reach.
+
+import { INPUT_TOPIC, type Message } from "./bus";
+import type { AgentSpec, BrainConfig } from "./config";
+
+export const MAX_NOTE_CHARS = 700;
+
+export interface AgentState {
+  lastSeen: number;   // bus message index the agent has read up to
+  lastCycle: number;  // last cycle the agent took a turn
+  turns: number;
+  ownNotes: string[];
+  private: string[];  // e.g. recalled memories
+}
+
+export interface TurnContext {
+  question: string;
+  workingMemory: string;
+  draft: string;
+  inbox: Message[];
+  instruction: string;
+}
+
+export interface Output {
+  thought: string;
+  posts: { topic: string; text: string }[];
+  messages: { to: string; text: string }[];
+  notebook?: Record<string, any>[];
+  draft?: string;
+  edits?: { find: string; replace: string }[];
+  note?: string;
+  ready?: boolean;
+  interest?: number | null;
+  verdict?: "approve" | "reject";
+  reason?: string;
+  reply?: string;
+  remember?: string[];
+}
+
+// like Python's str(x or ""): missing, empty, false and 0 all become ""
+const str = (x: unknown) => (x ? String(x) : "");
+
+export class Agent {
+  state: AgentState = { lastSeen: 0, lastCycle: -99, turns: 0, ownNotes: [], private: [] };
+  subs: Set<string>;
+
+  constructor(public spec: AgentSpec, private cfg: BrainConfig) {
+    this.subs = new Set(spec.subscriptions);
+  }
+
+  get name(): string {
+    return this.spec.name;
+  }
+
+  can(ability: string): boolean {
+    return this.spec.abilities.includes(ability);
+  }
+
+  // --- prompt ---------------------------------------------------------
+  systemPrompt(): string {
+    const s = this.spec;
+    const lines = [`Your name is ${s.name}.`, s.persona.trim(), "", "How you work:"];
+    const follows = s.subscriptions.filter((t) => t !== INPUT_TOPIC);
+    if (s.subscriptions.includes(INPUT_TOPIC)) {
+      lines.push("- Sometimes a question or idea comes up; you will see it as 'the matter at hand'.");
+    }
+    if (follows.length) {
+      lines.push("- You follow these notice boards: " + follows.map((t) => `#${t} (${this.cfg.topics[t]})`).join(", ") + ".");
+    }
+    if (s.posts_to.length) {
+      lines.push("- You may pin short notes on: " + s.posts_to.map((t) => `#${t} (${this.cfg.topics[t]})`).join(", ") + ".");
+    }
+    if (s.contacts.length) {
+      lines.push("- You can send private messages to:");
+      for (const c of s.contacts) lines.push(`  - ${c}: ${this.cfg.agents.get(c)!.public}`);
+    }
+    lines.push(
+      "- Silence is fine and often best. Only write when you add something new; never repeat what is already said.",
+      "- To stay silent, return empty lists. Never send a note or message just to say you are staying silent.",
+      "- Keep notes short and concrete (1-4 sentences) unless your job clearly needs more.",
+      "- 'thought' is your private reflection; nobody else ever sees it. Keep it to 1-3 sentences.",
+      "Respond only with JSON in the requested format.",
+    );
+    if (this.can("write_memory")) {
+      lines.push("- You keep the shared notebook. Use 'notebook' operations: add_task, add_decision, add_question, close (with ref = item number).");
+    }
+    if (this.can("write_draft")) {
+      lines.push("- You hold the draft. If there is no draft yet, write the first version in 'draft'. " +
+        "Once a draft exists, improve it with 'edits' instead of rewriting it: each edit copies an exact " +
+        "passage from the current draft into 'find' and gives its new wording in 'replace'. Exactly the " +
+        "text in 'find' is replaced and everything else stays as it is, so to rewrite a sentence or " +
+        "section, 'find' must contain all of it. Empty 'replace' deletes; to add something, put the " +
+        "sentence it should follow in 'find' and that sentence plus the addition in 'replace'. " +
+        "Change only what the notes call for and leave 'draft' empty. " +
+        "Only rewrite the whole draft in 'draft' if it is fundamentally wrong.");
+      lines.push("- The draft contains only the clean answer, never your working-out or doubts. Put one sentence " +
+        "in 'note' saying what you changed and why; others will see it. Leave 'edits', 'draft' and " +
+        "'note' empty if the draft needs no change.");
+      lines.push("- Set 'ready' to true only when you consider the draft finished: complete, in order, and " +
+        "nothing left you want to change.");
+    }
+    if (this.can("interest")) {
+      lines.push("- Report 'interest' from 0 to 10: how much you want the work to keep going. High only while real " +
+        "open problems remain AND progress is being made. A settled, good answer means LOW interest: " +
+        "there is nothing left to discover. Going in circles also means low interest.");
+    }
+    if (this.can("verdict")) lines.push("- Give a 'verdict' (approve or reject) and a short 'reason'.");
+    if (this.can("speak")) lines.push("- Put exactly what you say in 'reply'.");
+    if (this.can("remember")) lines.push("- When asked, list in 'remember' the few things truly worth keeping in mind for the future.");
+    return lines.join("\n");
+  }
+
+  userPrompt(ctx: TurnContext): string {
+    const s = this.spec;
+    const parts: string[] = [];
+    if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
+    if (this.state.private.length) {
+      parts.push("## Things you remember from before\n" + this.state.private.map((p) => `- ${p}`).join("\n"));
+    }
+    if (s.grants.includes("working_memory")) parts.push(`## Shared notebook\n${ctx.workingMemory}`);
+    if (s.grants.includes("draft")) parts.push(`## Current draft\n${ctx.draft}`);
+    if (this.state.ownNotes.length) {
+      parts.push("## What you said earlier\n" + this.state.ownNotes.slice(-4).map((n) => `- ${n}`).join("\n"));
+    }
+    const news = ctx.inbox.filter((m) => m.kind !== "input").map((m) => Agent.render(m));
+    if (news.length) parts.push("## New since you last looked\n" + news.slice(-25).join("\n"));
+    if (ctx.instruction) parts.push(`## Right now\n${ctx.instruction}`);
+    else if (s.nudge) parts.push(`## Right now\n${s.nudge.trim()}`);
+    else parts.push("## Right now\nDo your job: write only if you add something, otherwise stay silent (empty lists).");
+    return parts.join("\n\n");
+  }
+
+  static render(m: Message): string {
+    const text = m.text.length <= MAX_NOTE_CHARS ? m.text : m.text.slice(0, MAX_NOTE_CHARS) + " …";
+    if (m.kind === "dm") return `[private from ${m.sender}] ${text}`;
+    if (m.kind === "signal") return `[note] ${text}`;
+    return `[#${m.topic}] ${m.sender}: ${text}`;
+  }
+
+  // --- schema ---------------------------------------------------------
+  schema(): Record<string, any> {
+    const s = this.spec;
+    const props: Record<string, any> = { thought: { type: "string" } };
+    const required = ["thought"];
+    if (this.can("write_draft")) {
+      // edit fields first: small models fill fields in order
+      props.edits = { type: "array", items: {
+        type: "object", properties: { find: { type: "string" }, replace: { type: "string" } },
+        required: ["find", "replace"] } };
+      props.draft = { type: "string" };
+      props.note = { type: "string" };
+      props.ready = { type: "boolean" };
+      required.push("edits", "draft", "note", "ready");
+    }
+    if (s.posts_to.length) {
+      props.posts = { type: "array", items: {
+        type: "object", properties: { topic: { type: "string", enum: s.posts_to }, text: { type: "string" } },
+        required: ["topic", "text"] } };
+      required.push("posts");
+    }
+    if (s.contacts.length) {
+      props.messages = { type: "array", items: {
+        type: "object", properties: { to: { type: "string", enum: s.contacts }, text: { type: "string" } },
+        required: ["to", "text"] } };
+      required.push("messages");
+    }
+    if (this.can("write_memory")) {
+      props.notebook = { type: "array", items: {
+        type: "object", properties: {
+          op: { type: "string", enum: ["add_task", "add_decision", "add_question", "close"] },
+          text: { type: "string" }, ref: { type: "integer" } },
+        required: ["op"] } };
+      required.push("notebook");
+    }
+    if (this.can("interest")) {
+      props.interest = { type: "integer", minimum: 0, maximum: 10 };
+      required.push("interest");
+    }
+    if (this.can("verdict")) {
+      props.verdict = { type: "string", enum: ["approve", "reject"] };
+      props.reason = { type: "string" };
+      required.push("verdict", "reason");
+    }
+    if (this.can("speak")) {
+      props.reply = { type: "string" };
+      required.push("reply");
+    }
+    if (this.can("remember")) {
+      props.remember = { type: "array", items: { type: "string" } };
+      required.push("remember");
+    }
+    return { type: "object", properties: props, required };
+  }
+
+  // --- output ---------------------------------------------------------
+  /** Clamp the model's answer to what this agent is allowed to do. */
+  normalise(data: Record<string, any>): Output {
+    const s = this.spec;
+    const isObj = (x: unknown): x is Record<string, any> => !!x && typeof x === "object" && !Array.isArray(x);
+    const list = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
+    const out: Output = { thought: str(data.thought).trim(), posts: [], messages: [] };
+
+    for (const p of list(data.posts)) {
+      if (isObj(p) && s.posts_to.includes(p.topic) && str(p.text).trim()) out.posts.push({ topic: p.topic, text: str(p.text).trim() });
+    }
+    out.posts = out.posts.slice(0, s.max_posts);
+    for (const m of list(data.messages)) {
+      if (isObj(m) && s.contacts.includes(m.to) && m.to !== s.name && str(m.text).trim()) out.messages.push({ to: m.to, text: str(m.text).trim() });
+    }
+    out.messages = out.messages.slice(0, s.max_posts);
+
+    if (this.can("write_memory")) out.notebook = list(data.notebook).filter(isObj).slice(0, 5);
+    if (this.can("write_draft")) {
+      out.draft = unquote(str(data.draft));
+      out.edits = list(data.edits).filter((e): e is Record<string, any> => isObj(e) && !!str(e.find).trim())
+        .map((e) => ({ find: str(e.find), replace: str(e.replace) })).slice(0, 8);
+      out.note = str(data.note).trim().slice(0, 400);
+      out.ready = data.ready === true;
+    }
+    if (this.can("interest")) {
+      const n = typeof data.interest === "number" ? data.interest
+        : typeof data.interest === "string" && /^\s*-?\d+\s*$/.test(data.interest) ? Number(data.interest) : NaN;
+      out.interest = Number.isFinite(n) ? Math.max(0, Math.min(10, Math.trunc(n))) : null;
+    }
+    if (this.can("verdict")) {
+      const v = str(data.verdict).toLowerCase();
+      out.verdict = v === "approve" || v === "reject" ? v : "approve";
+      out.reason = str(data.reason).trim();
+    }
+    if (this.can("speak")) out.reply = unquote(str(data.reply));
+    if (this.can("remember")) out.remember = list(data.remember).map((r) => str(r).trim()).filter(Boolean).slice(0, 5);
+    return out;
+  }
+}
+
+/** Strip wrapping quotes small models like to add around long text. */
+export function unquote(text: string): string {
+  const t = text.trim();
+  for (const q of ['"""', "'''", '"']) {
+    if (t.startsWith(q) && t.endsWith(q) && t.length > 2 * q.length) return t.slice(q.length, -q.length).trim();
+  }
+  return t;
+}
+

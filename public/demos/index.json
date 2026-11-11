@@ -1,0 +1,10 @@
+{
+  "about": "Example sessions shipped with the page. Each file is a session exported with the ⤓ button; list it in 'files'. They are imported into the browser on first load, so they replay (with their spoken audio) without any key.",
+  "files": [
+    "what-would-change-if-humans-needed-only-01c0436209.json",
+    "give-me-five-unusual-ideas-for-a-weekend-82381cf777.json",
+    "can-god-create-a-stone-too-heavy-for-him-bcede4a146.json",
+    "why-is-the-sky-blue-but-sunsets-are-red-ec0665952b.json",
+    "a-bat-and-a-ball-cost-1-10-in-total-the-588fdc5bd9.json"
+  ]
+}

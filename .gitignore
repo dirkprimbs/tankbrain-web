@@ -1,0 +1,40 @@
+# --- build output and dependencies ---
+node_modules/
+dist/
+
+# --- secrets (the app never needs them, but never commit any) ---
+.env
+.env.*
+*.key
+*.pem
+
+# --- LLM / coding-assistant files: kept out of the repo ---
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+.agents/
+GEMINI.md
+.gemini/
+.codex/
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.windsurf/
+.windsurfrules
+.clinerules
+.clinerules/
+.continue/
+.roo/
+.github/copilot-instructions.md
+.copilot/
+
+# --- editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# --- local deployment (primbs.ca) ---
+deploy.sh

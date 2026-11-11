@@ -1,0 +1,4 @@
+# Each voice on the model chosen for it in agents.yaml: different model
+# families, so the critique really comes from a different "mind".
+default: {}
+agents: {}
