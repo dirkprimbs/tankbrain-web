@@ -9,6 +9,15 @@ import { MemoryPermissionError } from "./working";
 
 export const MAX_EDITS = 8;
 
+/** A bracketed stand-in such as "[empty]", "<answer here>" or "[...]": small
+ * models sometimes write one instead of an answer. */
+const PLACEHOLDER = /[\[<{]\s*(empty|blank|placeholder|todo|tbd|insert\b[^\]>}]*|(your |the )?answer( here)?|\.{3}|…)\s*[\]>}]/i;
+
+/** True if the text is no answer at all: no words, or a placeholder in it. */
+export function isPlaceholder(text: string): boolean {
+  return !/[\p{L}\p{N}]/u.test(text) || PLACEHOLDER.test(text);
+}
+
 export interface Edit { find: string; replace: string; why?: string }
 
 export interface Version {
@@ -107,8 +116,8 @@ export class Draft {
   write(who: string, text: string): number | null {
     this.check(who);
     text = text.trim();
-    // a "draft" with no words in it ("...", "[]") is a placeholder, not a version
-    if (!/[\p{L}\p{N}]/u.test(text) || text === this.current) return null;
+    // a "draft" with no words in it ("...", "[]") or a stand-in ("[empty]") is a placeholder, not a version
+    if (isPlaceholder(text) || text === this.current) return null;
     this.history.push({ text, mode: this.history.length ? "rewrite" : "initial", applied: [], failed: [] });
     return this.version;
   }

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/engine/agent";
-import { Brain } from "../src/engine/brain";
+import { Brain, NO_ANSWER } from "../src/engine/brain";
 import { Bus } from "../src/engine/bus";
 import * as config from "../src/engine/config";
 import { Energy } from "../src/engine/energy";
 import { EventLog } from "../src/engine/events";
 import { FakeLLM } from "../src/engine/llm";
-import { applyEdits, Draft, wordDiff } from "../src/engine/memory/draft";
+import { applyEdits, Draft, isPlaceholder, wordDiff } from "../src/engine/memory/draft";
 import { MemoryPermissionError, WorkingMemory } from "../src/engine/memory/working";
 import { schedule } from "../src/engine/scheduler";
 import { fresh, scripted, who } from "./helpers";
@@ -166,6 +166,17 @@ describe("edit-based drafting", () => {
     expect(wordDiff("a b", "a b")).toEqual([["=", "a b"]]);
   });
 
+  it("does not take a placeholder as a version", () => {
+    const d = new Draft("Drafter");
+    expect(d.write("Drafter", "It takes 5 minutes.")).toBe(1);
+    for (const junk of ["[empty],collected insights from note and update", "<answer here>", "[...]", "...", "{TODO}"]) {
+      expect(isPlaceholder(junk)).toBe(true);
+      expect(d.write("Drafter", junk)).toBeNull();
+    }
+    expect(d.current).toBe("It takes 5 minutes.");
+    for (const fine of ["It takes 5 minutes.", "The list [1, 2, 3] sums to 6.", "Wait... what?"]) expect(isPlaceholder(fine)).toBe(false);
+  });
+
   it("rejects replacements abbreviated with '...'", () => {
     const text = "Sunlight travels as white light. It scatters.";
     const [out, applied, failed] = applyEdits(text, [{ find: "Sunlight travels as white light.", replace: "Sunlight travels..." }]);
@@ -262,6 +273,35 @@ describe("whole sessions", () => {
     expect(["rejections exhausted", "wrap-up limit"]).toContain(ev.find((e) => e.kind === "phase" && e.data.phase === "speak")!.data.reason);
     expect(res.answer).toBe("SPOKEN");
     expect(ev.filter((e) => e.kind === "verdict").length).toBeLessThanOrEqual(cfg.cycle.max_rejections + 2);
+  });
+
+  it("a draft the gate never approved is spoken with a caveat", async () => {
+    const { cfg, log, ltm } = await fresh();
+    const stubborn = (s: string, u: string) => {
+      const out = gatedScript(s, u);
+      if (who(s) === "Inhibitor") Object.assign(out, { verdict: "reject", reason: "Still not right." });
+      if (who(s) === "Voice") out.reply = u.includes("not certain") ? "UNSURE" : "SURE";
+      return out;
+    };
+    const res = await new Brain(cfg, new FakeLLM(stubborn), log, ltm).run("Why are sunsets red?");
+    expect(res.answer).toBe("UNSURE");
+  });
+
+  it("with no draft at all, says so instead of letting the Voice improvise", async () => {
+    const { cfg, log, ltm } = await fresh();
+    const silent = (s: string, u: string) => {
+      const out = gatedScript(s, u);
+      if (who(s) === "Drafter") delete out.draft;
+      if (who(s) === "Voice") out.reply = "Say the answer now, based on the current draft.";
+      return out;
+    };
+    const res = await new Brain(cfg, new FakeLLM(silent), log, ltm).run("Why are sunsets red?");
+    const ev = await log.events(res.session);
+    expect(res.answer).toBe(NO_ANSWER);
+    expect(ev.find((e) => e.kind === "phase" && e.data.phase === "speak")!.data.reason).toBe("no draft");
+    expect(ev.some((e) => e.kind === "turn_start" && e.agent === "Voice")).toBe(false);
+    expect(ev.some((e) => e.kind === "verdict")).toBe(false);
+    expect(await ltm.count()).toBe(0); // nothing worth remembering
   });
 
   it("stopping cancels the session and its running calls", async () => {

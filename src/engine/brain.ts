@@ -7,7 +7,7 @@ import { owner, publicView, type BrainConfig } from "./config";
 import { Energy } from "./energy";
 import type { EventLog } from "./events";
 import type { LLM } from "./llm";
-import { Draft } from "./memory/draft";
+import { Draft, isPlaceholder } from "./memory/draft";
 import type { LongTermMemory } from "./memory/longterm";
 import { MemoryPermissionError, WorkingMemory } from "./memory/working";
 import { salience, schedule } from "./scheduler";
@@ -22,6 +22,10 @@ export const SPEAK =
   "Say the answer now, based on the current draft. Speak directly and naturally to whoever raised the matter. " +
   "Don't mention drafts, notes, a team or anyone else. Keep every number, formula, name and fact exactly as written. " +
   "If the draft already reads well, say it almost word for word; only smooth what is awkward.";
+export const SPEAK_UNSURE = SPEAK +
+  " The final check was not convinced by this answer: say it, but make clear that you are not certain it is right.";
+/** Said when no draft was ever written: nothing to say, and the Voice must not improvise. */
+export const NO_ANSWER = "Sorry, I didn't manage to work out an answer this time.";
 export const REMEMBER = (answer: string) =>
   "The matter has been settled. This is the answer that was given:\n\n" + answer + "\n\n" +
   "List in 'remember' up to 3 short things worth keeping in mind for the future " +
@@ -190,6 +194,14 @@ export class Brain {
     let failed: { find: string; replace: string; why?: string }[] = [];
     if (this.draft.version && out.edits?.length) [v, failed] = this.draft.edit(agent.name, out.edits);
     else if (out.draft) v = this.draft.write(agent.name, out.draft);
+    // "..." just means no change; a stand-in like "[empty]" gets told why it wasn't taken
+    if (!v && out.draft && /[\p{L}\p{N}]/u.test(out.draft) && isPlaceholder(out.draft.trim())) {
+      const text = out.draft.trim().slice(0, 120);
+      const msg = this.bus.add(cycle, "draft", "signal",
+        `Your new draft was not taken: "${text}" is a placeholder, not an answer. ` +
+        "Write the complete answer itself, or leave 'draft' empty to keep the current one.", { to: agent.name });
+      this.emit("edit_failed", agent.name, { failed: [{ find: text, replace: "", why: "placeholder, not an answer" }], id: msg.id });
+    }
     if (failed.length) {
       const listing = failed.map((f) => `"${f.find.slice(0, 120)}" (${f.why ?? "passage not found"})`).join("; ");
       const msg = this.bus.add(cycle, "draft", "signal",
@@ -317,7 +329,7 @@ export class Brain {
     this.emit("signal", null, { text: WRAP_SIGNAL, to: finishers });
     this.drafterReady = false;
     let rejections = 0, outcome = "wrap-up limit";
-    let gatedVersion: number | null = null;
+    let gatedVersion: number | null = null, approvedVersion: number | null = null;
 
     for (let i = 0; i < wrapCycles; i++) {
       if (this.cancelled) break;
@@ -338,6 +350,7 @@ export class Brain {
       const verdict = await this.gate(gate, rejections);
       gatedVersion = this.draft.version;
       if (verdict.verdict === "approve") {
+        approvedVersion = gatedVersion;
         outcome = "approved";
         break;
       }
@@ -355,13 +368,22 @@ export class Brain {
     // the gate always gets a look at the version that will be spoken
     if (gate && this.draft.version && gatedVersion !== this.draft.version && outcome !== "approved") {
       const verdict = await this.gate(gate, rejections);
-      if (verdict.verdict === "approve") outcome = "approved";
+      gatedVersion = this.draft.version;
+      if (verdict.verdict === "approve") {
+        approvedVersion = gatedVersion;
+        outcome = "approved";
+      }
     }
+    const hasDraft = this.draft.version > 0;
+    if (!hasDraft) outcome = "no draft";
     this.emit("phase", null, { phase: "speak", reason: outcome });
 
-    let answer = this.draft.current;
-    if (speaker) {
-      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, SPEAK);
+    // no draft: say so plainly (asked to speak "the draft", a small model reads out its instructions);
+    // a draft the gate looked at and didn't approve is said with a caveat
+    let answer = hasDraft ? this.draft.current : NO_ANSWER;
+    if (speaker && hasDraft) {
+      const doubted = !!gate && gatedVersion === this.draft.version && approvedVersion !== this.draft.version;
+      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, doubted ? SPEAK_UNSURE : SPEAK);
       answer = out.reply || answer;
     }
     this.emit("output", speaker, { channel: "speech", text: answer }); // the speech (text) output channel
@@ -372,7 +394,7 @@ export class Brain {
       }
     };
     const remember = async () => {
-      if (recall && this.ltm && answer) {
+      if (recall && this.ltm && answer && hasDraft) {
         const [, out] = await this.turn(this.agents.get(recall)!, this.cycle, REMEMBER(answer.slice(0, 1500)));
         for (const item of out.remember ?? []) await this.ltm.store(recall, item, this.session);
         if (out.remember?.length) this.emit("remember", recall, { items: out.remember });
