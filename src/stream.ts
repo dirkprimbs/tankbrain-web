@@ -2,6 +2,8 @@
 import type { AgentInfo, TankEvent } from "./types";
 import { GROUP_LABELS } from "./types";
 
+const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
+
 export interface FilterState {
   hidden: Set<string>;
   thoughts: boolean;
@@ -227,6 +229,31 @@ export class Stream {
         node = this.item(e, "post", "◀ SPOKEN REPLY", d.text, "output");
         node.title = "click to show the reply window";
         break;
+      case "comes_to_mind":
+        node = this.item(e, "post", "COMES TO MIND", (d.items as any[]).map((m) => `• ${KIND[m.kind] ?? m.kind}: ${m.text}  (weight ${m.weight.toFixed(2)})`).join("\n"), "memory");
+        break;
+      case "recognised": {
+        const mark: Record<string, string> = { related: "↩ FOLLOWS UP ON", reminds: "≈ REMINDS ME OF", unrelated: "✗ unrelated" };
+        node = this.item(e, "post", "RECOGNISED", (d.items as any[]).map((m) =>
+          `${mark[m.judgement] ?? m.judgement}: ${m.text}  (weight → ${m.weight.toFixed(2)})`).join("\n"), "memory");
+        break;
+      }
+      case "memory_suggested":
+        node = this.item(e, "post", "SUGGESTS REMEMBERING", `${KIND[d.kind] ?? d.kind}: ${d.text}`, "memory minor");
+        break;
+      case "memory_stored": {
+        const lines: string[] = [];
+        if (d.said?.gist) lines.push(`said (kept word for word): ${d.said.gist}`);
+        for (const m of d.kept ?? []) lines.push(`+ kept ${KIND[m.kind] ?? m.kind}: ${m.text}  (${m.from.join(", ")}; ${m.reason || "no reason given"})`);
+        for (const m of d.reinforced ?? []) lines.push(`↑ strengthened: ${m.text}  (weight ${m.weight.toFixed(2)}; suggested again by ${m.from.join(", ")})`);
+        for (const m of d.replaced ?? []) lines.push(`⟳ replaced: ${m.text}`);
+        for (const m of d.dropped ?? []) lines.push(`– not kept: ${m.text}  (${m.from.join(", ")})`);
+        for (const m of d.forgotten ?? []) lines.push(`✗ forgotten: ${m.text}  (weight ${m.weight.toFixed(2)})`);
+        lines.push(`${d.total} memories in all`);
+        node = this.item(e, "post", "LONG-TERM MEMORY", lines.join("\n"), "memory");
+        break;
+      }
+      // sessions recorded before weighted memory
       case "recall_search":
         if (d.hits?.length) node = this.item(e, "post", "COMES TO MIND", d.hits.map((h: any) => `• ${h.text}`).join("\n"), "memory");
         break;

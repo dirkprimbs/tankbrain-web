@@ -16,6 +16,7 @@ export interface AgentState {
   turns: number;
   ownNotes: string[];
   private: string[];  // e.g. recalled memories
+  comesToMind: string[]; // for a voice that recognises: memories that came up, numbered from 1
 }
 
 export interface TurnContext {
@@ -40,13 +41,21 @@ export interface Output {
   reason?: string;
   reply?: string;
   remember?: string[];
+  recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
+  suggestion?: { kind: "believe" | "interesting"; text: string } | null;
+  keep?: { ref: number; reason: string; replaces: number | null }[];
+  gist?: string;
 }
+
+/** Voices that think along may suggest one thing to remember; the gate, the
+ * speaker and memory itself don't. */
+const SUGGESTS = (a: AgentSpec) => a.phase === "think" && !a.abilities.some((x) => ["verdict", "speak", "remember"].includes(x));
 
 // like Python's str(x or ""): missing, empty, false and 0 all become ""
 const str = (x: unknown) => (x ? String(x) : "");
 
 export class Agent {
-  state: AgentState = { lastSeen: 0, lastCycle: -99, turns: 0, ownNotes: [], private: [] };
+  state: AgentState = { lastSeen: 0, lastCycle: -99, turns: 0, ownNotes: [], private: [], comesToMind: [] };
   subs: Set<string>;
 
   constructor(public spec: AgentSpec, private cfg: BrainConfig) {
@@ -111,7 +120,23 @@ export class Agent {
     }
     if (this.can("verdict")) lines.push("- Give a 'verdict' (approve or reject) and a short 'reason'.");
     if (this.can("speak")) lines.push("- Put exactly what you say in 'reply'.");
-    if (this.can("remember")) lines.push("- When asked, list in 'remember' the few things truly worth keeping in mind for the future.");
+    if (this.can("recognise")) {
+      lines.push("- Sometimes things come to mind, listed under 'Things that come to mind'. Judge each in 'recall' " +
+        "by its number: 'unrelated'; 'reminds' (it only reminds you of the matter); or 'related' (the matter " +
+        "follows up on or refers back to it, e.g. 'the third one', 'shorter', 'why?'). If something reminds you, " +
+        "mention it briefly in your note. If the matter follows up on something said before, restate the " +
+        "question so that it is clear what it refers to.");
+    }
+    if (SUGGESTS(this.spec)) {
+      lines.push("- If you come across something worth remembering beyond this matter, you may put it in " +
+        "'suggest_memory' (at most one, one short sentence): kind 'believe' (something you now hold true) or " +
+        "'interesting' (something you find interesting, and why). Usually leave it out.");
+    }
+    if (this.can("remember")) {
+      lines.push("- When asked, decide what is kept in long-term memory: pick in 'keep' the few suggestions " +
+        "worth keeping (by number, with a short reason; 'replaces' names an existing memory it corrects), " +
+        "and write in 'gist' the reply that was given, in one short sentence.");
+    }
     return lines.join("\n");
   }
 
@@ -119,6 +144,9 @@ export class Agent {
     const s = this.spec;
     const parts: string[] = [];
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
+    if (this.state.comesToMind.length) {
+      parts.push("## Things that come to mind\n" + this.state.comesToMind.map((p, i) => `[${i + 1}] ${p}`).join("\n"));
+    }
     if (this.state.private.length) {
       parts.push("## Things you remember from before\n" + this.state.private.map((p) => `- ${p}`).join("\n"));
     }
@@ -190,9 +218,23 @@ export class Agent {
       props.reply = { type: "string" };
       required.push("reply");
     }
+    if (this.can("recognise")) {
+      props.recall = { type: "array", items: {
+        type: "object", properties: { ref: { type: "integer" }, judgement: { type: "string", enum: ["unrelated", "reminds", "related"] } },
+        required: ["ref", "judgement"] } };
+      required.push("recall");
+    }
+    if (SUGGESTS(this.spec)) {
+      // optional: most turns have nothing worth remembering
+      props.suggest_memory = { type: "object", properties: {
+        kind: { type: "string", enum: ["believe", "interesting"] }, text: { type: "string" } }, required: ["kind", "text"] };
+    }
     if (this.can("remember")) {
-      props.remember = { type: "array", items: { type: "string" } };
-      required.push("remember");
+      props.keep = { type: "array", items: {
+        type: "object", properties: { ref: { type: "integer" }, reason: { type: "string" }, replaces: { type: "integer" } },
+        required: ["ref", "reason"] } };
+      props.gist = { type: "string" };
+      required.push("keep", "gist");
     }
     return { type: "object", properties: props, required };
   }
@@ -233,7 +275,34 @@ export class Agent {
       out.reason = str(data.reason).trim();
     }
     if (this.can("speak")) out.reply = unquote(str(data.reply));
-    if (this.can("remember")) out.remember = list(data.remember).map((r) => str(r).trim()).filter(Boolean).slice(0, 5);
+    const int = (x: unknown) => (typeof x === "number" && Number.isInteger(x) ? x
+      : typeof x === "string" && /^\s*\d+\s*$/.test(x) ? Number(x) : null);
+    if (this.can("recognise")) {
+      out.recall = [];
+      for (const r of list(data.recall)) {
+        const ref = isObj(r) ? int(r.ref) : null;
+        const j = isObj(r) ? str(r.judgement).toLowerCase() : "";
+        if (ref !== null && ref >= 1 && ref <= this.state.comesToMind.length && ["unrelated", "reminds", "related"].includes(j)
+            && !out.recall.some((x) => x.ref === ref)) out.recall.push({ ref, judgement: j as "unrelated" });
+      }
+    }
+    if (SUGGESTS(this.spec)) {
+      const m = data.suggest_memory;
+      const kind = isObj(m) ? str(m.kind).toLowerCase() : "";
+      const text = isObj(m) ? str(m.text).trim() : "";
+      out.suggestion = (kind === "believe" || kind === "interesting") && text ? { kind, text: text.slice(0, 300) } : null;
+    }
+    if (this.can("remember")) {
+      out.keep = [];
+      for (const k of list(data.keep)) {
+        if (!isObj(k)) continue;
+        const ref = int(k.ref);
+        if (ref !== null && ref >= 1 && !out.keep.some((x) => x.ref === ref)) {
+          out.keep.push({ ref, reason: str(k.reason).trim().slice(0, 200), replaces: int(k.replaces) });
+        }
+      }
+      out.gist = str(data.gist).trim().slice(0, 300);
+    }
     return out;
   }
 }

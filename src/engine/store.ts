@@ -30,6 +30,16 @@ export interface MemoryRow {
   created: number;
   text: string;
   embedding: number[] | null;
+  // added with weighted memory (older rows lack them; see memory/longterm.ts normalise)
+  kind?: string;
+  weight?: number;
+  age?: number;
+  uses?: number;
+  used?: number | null;
+  from?: string[];
+  verbatim?: boolean;
+  question?: string;
+  gist?: string;
 }
 
 export interface ProfileRow {

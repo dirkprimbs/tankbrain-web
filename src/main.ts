@@ -231,6 +231,9 @@ function handle(e: TankEvent) {
       draft.add(d);
       ui.dock.dataset.tab = ui.dock.dataset.tab || "draft";
       break;
+    case "memory_stored":
+      $("mem-count").textContent = String(d.total);
+      break;
     case "memory":
       ui.notebook.innerHTML = "";
       for (const i of d.items) {
@@ -384,7 +387,7 @@ async function loadSessions() {
     const ex = document.createElement("button");
     ex.className = "ghost export";
     ex.textContent = "⤓";
-    ex.title = "export this session as a file (events, spoken audio, memories)";
+    ex.title = "export this session as a file, to replay elsewhere (events and spoken audio)";
     ex.addEventListener("click", () => exportSession(s.id, s.question));
     item.append(b, ex);
     ui.sessions.appendChild(item);

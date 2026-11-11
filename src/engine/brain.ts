@@ -8,7 +8,7 @@ import { Energy } from "./energy";
 import type { EventLog } from "./events";
 import type { LLM } from "./llm";
 import { Draft, isPlaceholder } from "./memory/draft";
-import type { LongTermMemory } from "./memory/longterm";
+import { REINFORCE, similarity, type Judgement, type LongTermMemory, type Memory } from "./memory/longterm";
 import { MemoryPermissionError, WorkingMemory } from "./memory/working";
 import { salience, schedule } from "./scheduler";
 
@@ -26,10 +26,32 @@ export const SPEAK_UNSURE = SPEAK +
   " The final check was not convinced by this answer: say it, but make clear that you are not certain it is right.";
 /** Said when no draft was ever written: nothing to say, and the Voice must not improvise. */
 export const NO_ANSWER = "Sorry, I didn't manage to work out an answer this time.";
-export const REMEMBER = (answer: string) =>
-  "The matter has been settled. This is the answer that was given:\n\n" + answer + "\n\n" +
-  "List in 'remember' up to 3 short things worth keeping in mind for the future " +
-  "(the question and the gist of the answer, a useful insight). Leave out trivia.";
+export const MAX_KEEP = 3; // suggestions kept per session (plus the reply itself)
+const MERGE = 0.88;        // suggestions this similar count as one, with several votes
+
+type Suggestion = { kind: "believe" | "interesting"; text: string; from: string[]; embedding: number[] | null };
+
+const KIND_LABEL = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
+
+/** How a memory appears to the Listener when it comes to mind. */
+export function describeMemory(m: Memory): string {
+  if (m.verbatim) return `(${KIND_LABEL.said}, in reply to "${m.question.slice(0, 200)}") ${m.text.slice(0, 700)}`;
+  return `(${KIND_LABEL[m.kind]}) ${m.text}`;
+}
+
+export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[], existing: Memory[]) =>
+  "The matter has been settled.\n\nThe matter was: " + question.slice(0, 400) + "\n\nThe reply that was given:\n" +
+  answer.slice(0, 1500) + "\n\n" +
+  (sugg.length
+    ? "Suggestions for long-term memory (number, kind, who suggested it):\n" +
+      sugg.map((x, i) => `[${i + 1}] (${x.kind}; ${x.from.join(", ")}) ${x.text}`).join("\n")
+    : "Nobody suggested anything to remember.") + "\n\n" +
+  (existing.length
+    ? "Already in memory, and similar:\n" + existing.map((m) => `#${m.id} (${m.kind}) ${m.text}`).join("\n") + "\n\n"
+    : "") +
+  `Keep at most ${MAX_KEEP} suggestions in 'keep', by number, each with a short reason; keep none if none is worth it. ` +
+  "If a kept suggestion corrects an existing memory, give that memory's number (without #) in 'replaces'. " +
+  "Write in 'gist' what was asked and what was replied, in one short sentence.";
 
 /** Optional spoken output channel (Kokoro in the browser). */
 export interface AudioChannel {
@@ -73,6 +95,7 @@ export class Brain {
   energy!: Energy;
   cycle = 0;
   drafterReady = false;
+  suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
   private loadedModel: string | null = null;
   private sem!: Semaphore;
   private abort = new AbortController();
@@ -180,6 +203,11 @@ export class Brain {
       }
     }
 
+    if (out.suggestion) {
+      this.suggestions.set(agent.name, out.suggestion); // a voice's last suggestion counts
+      this.emit("memory_suggested", agent.name, out.suggestion);
+    }
+
     if (agent.can("interest") && out.interest !== null && out.interest !== undefined) {
       const level = this.energy.reportInterest(out.interest);
       this.emit("interest", agent.name, { value: out.interest, level: round(level, 3) });
@@ -237,6 +265,7 @@ export class Brain {
     this.energy = new Energy(cfg.energy);
     this.cycle = 0;
     this.drafterReady = false;
+    this.suggestions = new Map();
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
     const elapsed = () => round((performance.now() - t0) / 1000, 1);
@@ -248,14 +277,7 @@ export class Brain {
       const msg = this.bus.add(0, "inspiration", "input", this.question, { topic: INPUT_TOPIC });
       this.emit("input", null, { channel: "inspiration", text: this.question, recipients: this.bus.recipients(msg, this.subs()) });
 
-      const recall = owner(cfg, "remember");
-      if (recall && this.ltm) {
-        const hits = await this.ltm.search(this.question);
-        const a = this.agents.get(recall)!;
-        a.state.private = hits.map(([, h]) => h);
-        if (!hits.length) a.state.lastSeen = this.bus.messages.length; // nothing comes to mind: stay quiet
-        this.emit("recall_search", recall, { hits: hits.map(([s, h]) => ({ score: round(s, 3), text: h })) });
-      }
+      if (this.ltm) await this.recollect();
 
       this.emit("energy", null, { level: this.energy.level });
       const reason = await this.think(t0);
@@ -294,6 +316,95 @@ export class Brain {
     return out;
   }
 
+  // --- long-term memory ------------------------------------------------------
+  /** Before thinking starts: memories fade a little; what may be relevant comes
+   * to mind, and the Listener, hearing first, judges it. What it finds the
+   * matter follows up on is put on #memories for everyone's first turn. */
+  private async recollect(): Promise<void> {
+    const ltm = this.ltm!;
+    await ltm.age();
+    const name = owner(this.cfg, "recognise");
+    if (!name) return;
+    const candidates = await ltm.candidates(this.question);
+    if (!candidates.length) return;
+    const listener = this.agents.get(name)!;
+    listener.state.comesToMind = candidates.map(describeMemory);
+    this.emit("comes_to_mind", name, { items: candidates.map((m) => memView(m)) });
+    const [, out] = await this.turn(listener, 0);
+    const judged = new Map((out.recall ?? []).map((r) => [r.ref, r.judgement]));
+    const items = [];
+    for (const [i, m] of candidates.entries()) {
+      // not judged at all counts as not useful
+      const j: Judgement = judged.get(i + 1) ?? "unrelated";
+      const after = await ltm.judge(m.id, j);
+      items.push({ ...memView(m), judgement: j, weight: round(after?.weight ?? m.weight, 3) });
+      if (j === "related" && "memories" in this.cfg.topics) {
+        const text = m.kind === "said"
+          ? `Earlier I said${m.question ? ` (in reply to "${m.question.slice(0, 200)}")` : ""}: ${m.text}`
+          : `I remember (${KIND_LABEL[m.kind]}): ${m.text}`;
+        const msg = this.bus.add(0, name, "post", text, { topic: "memories" });
+        this.emit("post", name, { topic: "memories", text: msg.text, id: msg.id, system: true,
+                                  recipients: this.bus.recipients(msg, this.subs()) });
+      }
+    }
+    this.emit("recognised", name, { items });
+  }
+
+  /** After the reply: it becomes the latest thing said (the one before fades to
+   * its gist); the voices' suggestions are merged (agreement counts as votes),
+   * the ones that repeat a memory strengthen it instead, and Recall keeps at
+   * most MAX_KEEP of the rest. Then the weakest memories are forgotten. */
+  private async consolidate(answer: string): Promise<void> {
+    const ltm = this.ltm!;
+    const recall = owner(this.cfg, "remember");
+    const writer = recall ?? ltm.owner;
+    const raw = [...this.suggestions].filter(([, s]) => !isPlaceholder(s.text));
+    const merged: Suggestion[] = [];
+    for (const [who, s] of raw) {
+      const embedding = await ltm.vector(s.text);
+      const same = merged.find((m) => m.kind === s.kind && similarity(m, { text: s.text, embedding }) >= MERGE);
+      if (same) same.from.push(who);
+      else merged.push({ ...s, from: [who], embedding });
+    }
+    const reinforced = [];
+    const fresh: Suggestion[] = [];
+    for (const s of merged) {
+      const known = await ltm.findSame(s.text, s.embedding);
+      if (known) {
+        const m = await ltm.reinforce(known.id, REINFORCE * s.from.length);
+        reinforced.push({ ...memView(m ?? known), from: s.from });
+      } else fresh.push(s);
+    }
+    // existing memories close to this reply, which a new suggestion might correct
+    const near = (await ltm.all()).filter((m) => !m.verbatim)
+      .map((m) => [similarity({ text: answer, embedding: null }, m), m] as const)
+      .sort((a, b) => b[0] - a[0]).slice(0, 5).filter(([s]) => s > 0.15).map(([, m]) => m);
+
+    let keep: { ref: number; reason: string; replaces: number | null }[] = [];
+    let gist = "";
+    if (recall) {
+      const [, out] = await this.turn(this.agents.get(recall)!, this.cycle, CONSOLIDATE(this.question, answer, fresh, near));
+      keep = (out.keep ?? []).filter((k) => k.ref >= 1 && k.ref <= fresh.length).slice(0, MAX_KEEP);
+      gist = out.gist ?? "";
+    }
+    const said = await ltm.said(writer, answer, this.question, gist || `Asked: ${this.question.slice(0, 120)}`, this.session);
+    const kept = [], replaced = [];
+    for (const k of keep) {
+      const s = fresh[k.ref - 1];
+      if (k.replaces !== null && near.some((m) => m.id === k.replaces)) {
+        replaced.push(memView(near.find((m) => m.id === k.replaces)!));
+        await ltm.remove(k.replaces);
+      }
+      const m = await ltm.store(writer, s.kind, s.text, {
+        weight: Math.min(0.9, 0.45 + 0.1 * (s.from.length - 1)), session: this.session, from: s.from, embedding: s.embedding });
+      if (m) kept.push({ ...memView(m), from: s.from, reason: k.reason });
+    }
+    const dropped = fresh.filter((_, i) => !keep.some((k) => k.ref === i + 1)).map((s) => ({ kind: s.kind, text: s.text, from: s.from }));
+    const forgotten = (await ltm.forget()).map(memView);
+    this.emit("memory_stored", writer, { said: { gist: said.gist }, kept, reinforced, replaced, dropped, forgotten,
+                                         total: await ltm.count() });
+  }
+
   private async think(t0: number): Promise<string> {
     const c = this.cfg.cycle;
     const maxCycles = c.max_cycles ?? 12, minCycles = c.min_cycles ?? 2;
@@ -321,7 +432,7 @@ export class Brain {
    * cycles continue. Bounded by wrap_cycles/max_rejections. */
   private async wrapup(): Promise<string> {
     const cfg = this.cfg, c = cfg.cycle;
-    const [drafter, gate, speaker, recall] = ["write_draft", "verdict", "speak", "remember"].map((x) => owner(cfg, x));
+    const [drafter, gate, speaker] = ["write_draft", "verdict", "speak"].map((x) => owner(cfg, x));
     const wrapCycles = c.wrap_cycles ?? 4, maxRejections = c.max_rejections ?? 2;
     // "time is nearly up" goes to the writer; everyone else has had their say and stays quiet
     const finishers = drafter ? [drafter] : [];
@@ -394,11 +505,7 @@ export class Brain {
       }
     };
     const remember = async () => {
-      if (recall && this.ltm && answer && hasDraft) {
-        const [, out] = await this.turn(this.agents.get(recall)!, this.cycle, REMEMBER(answer.slice(0, 1500)));
-        for (const item of out.remember ?? []) await this.ltm.store(recall, item, this.session);
-        if (out.remember?.length) this.emit("remember", recall, { items: out.remember });
-      }
+      if (this.ltm && answer && hasDraft) await this.consolidate(answer);
     };
     // the voice is heard while the memory is being laid down
     await Promise.all([speakAloud(), remember()]);
@@ -408,6 +515,11 @@ export class Brain {
 
 export function newSessionId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+}
+
+/** What the trace shows of a memory (no embedding). */
+function memView(m: Memory) {
+  return { id: m.id, kind: m.kind, text: m.verbatim ? m.gist || m.text.slice(0, 300) : m.text, weight: round(m.weight, 3) };
 }
 
 function round(x: number, digits: number): number {

@@ -200,14 +200,34 @@ describe("whole sessions", () => {
     for (const k of ["session_start", "input", "post", "dm", "draft", "memory", "interest", "verdict", "output", "session_end"]) {
       expect(kinds).toContain(k);
     }
-    expect(await ltm.count()).toBe(1);
+    // the reply, word for word, plus the one suggestion two voices agreed on
+    const mems = await ltm.all();
+    expect(mems.length).toBe(2);
+    expect(mems.find((m) => m.verbatim)!.text).toBe("It's 51.");
+    const kept = mems.find((m) => m.kind === "interesting")!;
+    expect(kept.from.sort()).toEqual(["Associator", "Curator"]);
+    expect(kept.weight).toBeCloseTo(0.55);
     expect((await log.sessions())[0].status).toBe("done");
     // the speaker and gate never ran during thinking
     expect(ev.filter((e) => e.kind === "turn_start" && ["Voice", "Inhibitor"].includes(e.agent!)).every((e) => e.data.forced)).toBe(true);
-    const res2 = await new Brain(cfg, llm, log, ltm).run("What is 17 times 3 again?");
-    const hits = (await log.events(res2.session)).find((e) => e.kind === "recall_search")!.data.hits;
-    expect(hits.length).toBeGreaterThan(0);
-    expect(hits[0].text).toContain("51");
+
+    // a follow-up: the Listener hears first, recognises it, and the earlier reply reaches the Drafter
+    const res2 = await new Brain(cfg, llm, log, ltm).run("And times 4?");
+    const ev2 = await log.events(res2.session);
+    expect(ev2.find((e) => e.kind === "comes_to_mind")!.data.items[0].text).toContain("51");
+    expect(ev2.find((e) => e.kind === "recognised")!.data.items[0].judgement).toBe("related");
+    const firstTurns = ev2.filter((e) => e.kind === "turn_start");
+    expect(firstTurns[0].agent).toBe("Listener");
+    expect(firstTurns[0].data.cycle).toBe(0);
+    const prompts = llm.calls.filter((c) => c.system.includes("Your name is Drafter."));
+    expect(prompts.at(-1)!.user + prompts.slice(-6).map((c) => c.user).join("")).toContain("Earlier I said");
+    // the first reply has faded to its gist; the new one is word for word
+    const after = await ltm.all();
+    expect(after.filter((m) => m.verbatim).length).toBe(1);
+    expect(after.some((m) => !m.verbatim && m.kind === "said" && m.text.startsWith("Asked what 17 times 3"))).toBe(true);
+    // the same suggestion again strengthened the memory instead of adding one
+    expect(after.filter((m) => m.kind === "interesting").length).toBe(1);
+    expect(ev2.find((e) => e.kind === "memory_stored")!.data.reinforced.length).toBe(1);
   });
 
   it("drafts by edits, with sources", async () => {

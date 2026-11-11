@@ -7,7 +7,8 @@ const ABILITY: Record<string, string> = {
   write_memory: "keeps the notebook",
   speak: "speaks the reply",
   verdict: "approves or sends back the reply",
-  remember: "keeps long-term memory",
+  remember: "decides what goes into long-term memory",
+  recognise: "recognises what comes to mind (and follow-ups)",
   interest: "drives the energy level",
 };
 
@@ -101,7 +102,8 @@ export class VoiceCard {
       case "thinking": return `thinking now${dur}`;
       case "loading": return `loading ${a.model}${dur}`;
       case "listening": return "listening: speaks when something new reaches it";
-      case "waiting": return a.phase === "gate" ? "waits until the draft is declared ready" : "waits for its cue to speak";
+      case "waiting": return a.phase === "gate" ? "waits until the draft is declared ready"
+        : a.phase === "after" ? "waits until the reply is given, then decides what to remember" : "waits for its cue to speak";
       case "done": return `finished · ${s.turns} turn${s.turns === 1 ? "" : "s"}`;
       default: return "standby: no session running";
     }
@@ -143,7 +145,8 @@ export class VoiceCard {
     sec("TASK", [
       ["job", a.public],
       ["owns", a.abilities.map((x) => ABILITY[x] ?? x).join(", ")],
-      ["reads", a.subscriptions.map((t) => (t === "inspiration" ? "the question" : "#" + t)).join(", ") || (a.phase === "think" ? "" : "the question and the draft, when called")],
+      ["reads", a.subscriptions.map((t) => (t === "inspiration" ? "the question" : "#" + t)).join(", ") ||
+        (a.phase === "think" ? "" : a.phase === "after" ? "the reply and what others suggested remembering" : "the question and the draft, when called")],
       ["writes to", a.posts_to.map((t) => "#" + t).join(", ")],
       ["can message", a.contacts.join(", ")],
     ]);

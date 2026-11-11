@@ -214,6 +214,67 @@ export class SettingsWindow {
     dataRow.append(forget);
     body.append(dataRow);
 
+    // --- the whole state, as a file
+    body.append(h("p", "settings-note",
+      "Export everything (sessions, memories, saved profiles, settings; never the key) as one file, to keep it " +
+      "or move this brain to another browser. Importing such a file replaces everything here with it."));
+    const exp = h("button", "ghost", "export everything");
+    exp.addEventListener("click", async () => {
+      try {
+        const blob = await api.exportState();
+        const a = h("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `tankbrain-state-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+        this.say(`exported (${(blob.size / 1e6).toFixed(1)} MB)`, "ok");
+      } catch (e) {
+        this.say(`not exported: ${(e as api.ApiError).detail ?? e}`, "error");
+      }
+    });
+    const pick = h("input");
+    pick.type = "file";
+    pick.accept = ".json,application/json";
+    pick.hidden = true;
+    const imp = h("button", "ghost danger", "import everything…");
+    let chosen: File | null = null;
+    imp.addEventListener("click", async () => {
+      if (!chosen) return pick.click();
+      const f = chosen;
+      chosen = null;
+      imp.textContent = "import everything…";
+      try {
+        this.say(await api.importState(f) + "; reloading…", "ok");
+        setTimeout(() => location.reload(), 1200);
+      } catch (e) {
+        this.say(`not imported: ${(e as api.ApiError).detail ?? e}`, "error");
+      }
+    });
+    pick.addEventListener("change", () => {
+      chosen = pick.files?.[0] ?? null;
+      pick.value = "";
+      if (!chosen) return;
+      imp.textContent = "click again to replace everything";
+      this.say(`"${chosen.name}" will replace every session, memory, profile and setting here; it can't be undone`, "error");
+      setTimeout(() => {
+        if (chosen) {
+          chosen = null;
+          imp.textContent = "import everything…";
+        }
+      }, 8000);
+    });
+    const stateRow = h("div", "row");
+    stateRow.append(exp, imp, pick);
+    body.append(stateRow);
+
+    // --- long-term memory, to look at
+    body.append(h("div", "editor-group", "LONG-TERM MEMORY"));
+    body.append(h("p", "settings-note",
+      `What the brain remembers across questions, strongest first. Weights rise when a memory proves useful, ` +
+      `fall when it comes to mind for nothing, and fade a little every session; at most 60 are kept and the ` +
+      `weakest are forgotten.`));
+    body.append(this.memList);
+
     const foot = h("div", "editor-foot");
     foot.append(this.status);
     panel.append(head, body, foot);
@@ -236,7 +297,26 @@ export class SettingsWindow {
     this.loadTtsModels();
     this.say("", "");
     this.refresh();
+    this.showMemories();
     this.root.classList.add("show");
+  }
+
+  private memList = h("div", "mem-list");
+
+  private async showMemories() {
+    const KIND: Record<string, string> = { said: "said", believe: "believes", interesting: "finds interesting" };
+    const list = await api.memoryList();
+    this.memList.replaceChildren();
+    if (!list.length) this.memList.append(h("div", "small", "nothing remembered yet"));
+    for (const m of list) {
+      const row = h("div", "mem-row");
+      const bar = h("span", "mem-weight");
+      bar.style.setProperty("--w", String(m.weight));
+      bar.title = `weight ${m.weight.toFixed(2)} · used ${m.uses}× · ${m.age} sessions old`;
+      const text = m.verbatim ? `${m.text.slice(0, 240)}${m.text.length > 240 ? "…" : ""}  (latest reply, word for word)` : m.text;
+      row.append(bar, h("span", "mem-kind", KIND[m.kind] ?? m.kind), h("span", "mem-text", text));
+      this.memList.append(row);
+    }
   }
 
   private sample: HTMLAudioElement | null = null;

@@ -3,7 +3,7 @@ import { Agent } from "../src/engine/agent";
 import { Brain } from "../src/engine/brain";
 import * as config from "../src/engine/config";
 import { FakeLLM, type LLM } from "../src/engine/llm";
-import { exportSession, importDemos, importSession } from "../src/engine/sessionfile";
+import { exportSession, forgetDemoMemories, importDemos, importSession } from "../src/engine/sessionfile";
 import { wavBlob } from "../src/speech/text";
 import { fresh, scripted } from "./helpers";
 
@@ -39,7 +39,7 @@ describe("Inventor and Storyteller", () => {
 });
 
 describe("session files and demos", () => {
-  it("export and import round-trip a whole session: events, audio, memories", async () => {
+  it("export and import round-trip a whole session: events and audio, but no memories", async () => {
     const a = await fresh();
     const res = await new Brain(a.cfg, new FakeLLM(scripted), a.log, a.ltm).run("What is 17 times 3?");
     await a.log.flush();
@@ -50,9 +50,23 @@ describe("session files and demos", () => {
     expect(await importSession(b.db, file)).toBe(false); // already there
     expect((await b.log.events(res.session)).length).toBe((await a.log.events(res.session)).length);
     expect((await b.db.get("audio", `${res.session}/af_heart_1.0_0_abcdef12.wav`))!.wav.size).toBe(44 + 20);
-    expect(await b.ltm.count()).toBe(1);
-    expect((await b.ltm.search("17 times 3"))[0][1]).toContain("51");
+    // a recording is for replaying: it doesn't change what the other brain remembers
+    expect(file.memories).toBeUndefined();
+    expect(await b.ltm.count()).toBe(0);
+    expect(await importSession(b.db, { ...file, session: { ...file.session, id: "old1" },
+      memories: [{ session: "old1", created: 1, text: "from an older file", embedding: null }] })).toBe(true);
+    expect(await b.ltm.count()).toBe(0);
     await expect(importSession(b.db, { nope: 1 } as any)).rejects.toThrow("not a Tankbrain session file");
+  });
+
+  it("forgets memories that older versions imported along with a demo", async () => {
+    const { db } = await fresh();
+    await db.put("sessions", { id: "d1", started: 1, question: "q", profile: "demo · x", answer: null, status: "done", ended: 2 });
+    await db.put("sessions", { id: "own", started: 1, question: "q", profile: "dirksdefault", answer: null, status: "done", ended: 2 });
+    await db.add("memories", { session: "d1", created: 1, text: "from the demo", embedding: null });
+    await db.add("memories", { session: "own", created: 1, text: "lived through", embedding: null });
+    expect(await forgetDemoMemories(db)).toBe(1);
+    expect((await db.getAll("memories")).map((m) => m.text)).toEqual(["lived through"]);
   });
 
   it("imports the shipped demos once, labelled as demos", async () => {

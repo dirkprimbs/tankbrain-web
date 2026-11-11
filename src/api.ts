@@ -9,7 +9,8 @@ import { EventLog } from "./engine/events";
 import { OpenRouterLLM, type CloudModel } from "./engine/llm";
 import { LongTermMemory } from "./engine/memory/longterm";
 import { forgetEverything, openStore, type EventRow, type Store } from "./engine/store";
-import { exportSession as exportFile, importDemos, importSession, type SessionFile } from "./engine/sessionfile";
+import { exportSession as exportFile, forgetDemoMemories, importDemos, importSession, type SessionFile } from "./engine/sessionfile";
+import { exportState as exportStateFile, importState as importStateFile, isStateFile } from "./engine/statefile";
 import { settings } from "./settings";
 import { OpenRouterSpeech, type SpeechModel } from "./speech/openrouter";
 export type SpeechModelInfo = SpeechModel;
@@ -49,6 +50,7 @@ export async function init(): Promise<void> {
   log = new EventLog(db);
   await log.markInterrupted(); // anything still "running" was cut off when the page closed
   await importDemos(db);        // example sessions shipped with the page (public/demos/)
+  await forgetDemoMemories(db);
   ltm = new LongTermMemory(db, (t) => openrouter.embed(t));
   speech = new SpeechStore(db, { kokoro: kokoroEngine(synth), openrouter: tts });
 }
@@ -219,7 +221,7 @@ export async function forgetAll(): Promise<void> {
   await importDemos(db); // the shipped example sessions come back
 }
 
-/** A session as a portable file (events, spoken audio, the memories it left). */
+/** A session as a portable file, for replaying (events and spoken audio). */
 export async function exportSession(id: string): Promise<Blob> {
   const file = await exportFile(db, id);
   return new Blob([JSON.stringify(file)], { type: "application/json" });
@@ -240,3 +242,39 @@ export async function importFile(f: File): Promise<string> {
     throw new ApiError(400, (e as Error).message);
   }
 }
+
+// --- the whole state --------------------------------------------------------------
+const SETTING = /^tankbrain\./;
+const SECRET = "tankbrain.openrouterKey"; // never leaves this browser in a file
+
+/** Everything this brain is: sessions, memories, profiles and settings (not the key). */
+export async function exportState(): Promise<Blob> {
+  const prefs: Record<string, string> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)!;
+    if (SETTING.test(k) && k !== SECRET) prefs[k] = localStorage.getItem(k)!;
+  }
+  return new Blob([JSON.stringify(await exportStateFile(db, prefs))], { type: "application/json" });
+}
+
+/** Replace this brain's whole state with a state file. The key stays as it is. */
+export async function importState(f: File): Promise<string> {
+  if (state.task) throw new ApiError(409, "wait until the brain has finished thinking");
+  let file: unknown;
+  try {
+    file = JSON.parse(await f.text());
+  } catch {
+    throw new ApiError(400, "not a JSON file");
+  }
+  if (!isStateFile(file)) throw new ApiError(400, "not a Tankbrain state file (to add a single session, use import… in the session list)");
+  const n = await importStateFile(db, file);
+  for (const [k, v] of Object.entries(file.settings ?? {})) if (SETTING.test(k) && k !== SECRET) localStorage.setItem(k, String(v));
+  return `restored ${n.sessions} sessions, ${n.memories} memories and ${n.profiles} saved profiles`;
+}
+
+/** The long-term memories, strongest first (for looking at, not for the brain). */
+export async function memoryList() {
+  return (await ltm.all()).sort((a, b) => Number(b.verbatim) - Number(a.verbatim) || b.weight - a.weight)
+    .map(({ embedding: _e, ...m }) => m);
+}
+

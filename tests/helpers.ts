@@ -11,9 +11,17 @@ export function who(system: string): string {
 export function scripted(system: string, user: string): Record<string, any> {
   const name = who(system);
   const base: Record<string, any> = { thought: `${name} thinking`, posts: [], messages: [] };
-  if (name === "Listener") base.posts = [{ topic: "focus", text: "They want 17 * 3." }];
-  else if (name === "Associator") base.posts = [{ topic: "associations", text: "multiplication; tables; prime 17" }];
-  else if (name === "Curator") base.posts = [{ topic: "ideas", text: "17 is prime: irrelevant but fun." }];
+  if (name === "Listener") {
+    base.posts = [{ topic: "focus", text: "They want 17 * 3." }];
+    // whatever comes to mind first is what this follows up on
+    if (user.includes("## Things that come to mind")) base.recall = [{ ref: 1, judgement: "related" }];
+  } else if (name === "Associator") {
+    base.posts = [{ topic: "associations", text: "multiplication; tables; prime 17" }];
+    base.suggest_memory = { kind: "interesting", text: "17 is a prime number, which makes it odd company in times tables." };
+  } else if (name === "Curator") {
+    base.posts = [{ topic: "ideas", text: "17 is prime: irrelevant but fun." }];
+    base.suggest_memory = { kind: "interesting", text: "17 is a prime number, which makes it odd company in times tables." };
+  }
   else if (name === "Logician") {
     base.posts = [{ topic: "logic", text: "17 * 3 = 51." }];
     base.messages = [{ to: "Drafter", text: "The result is 51." }];
@@ -27,7 +35,10 @@ export function scripted(system: string, user: string): Record<string, any> {
   else if (name === "Motivator") base.interest = 1;
   else if (name === "Inhibitor") Object.assign(base, { verdict: "approve", reason: "Correct." });
   else if (name === "Voice") base.reply = "It's 51.";
-  else if (name === "Recall") base.remember = ["Asked what 17 times 3 is: it equals 51"];
+  else if (name === "Recall") {
+    base.keep = user.includes("[1]") ? [{ ref: 1, reason: "a curious fact" }] : [];
+    base.gist = "Asked what 17 times 3 is: it equals 51.";
+  }
   return base;
 }
 
