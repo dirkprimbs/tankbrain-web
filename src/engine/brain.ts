@@ -8,7 +8,7 @@ import { Energy } from "./energy";
 import type { EventLog } from "./events";
 import type { LLM } from "./llm";
 import { Draft, isPlaceholder } from "./memory/draft";
-import { REINFORCE, similarity, type Judgement, type LongTermMemory, type Memory } from "./memory/longterm";
+import { DOUBT_SESSIONS, LongTermMemory, REINFORCE, similarity, type Judgement, type Memory } from "./memory/longterm";
 import { MemoryPermissionError, WorkingMemory } from "./memory/working";
 import { salience, schedule } from "./scheduler";
 
@@ -46,6 +46,18 @@ export function describeMemory(m: Memory): string {
 /** An exchange as one line on #memories. */
 const exchangeLine = (m: Memory) => `I was asked "${m.question.slice(0, 200)}" and replied: ${m.text}`;
 
+/** The careful voice weighs a challenge to a core belief. "approve" means: change it. */
+export const RECONSIDER = (belief: string, proposed: string, question: string, answer: string, doubts: { text: string; question: string }[]) =>
+  "One of your core beliefs about yourself is being questioned. Think it through before anything changes.\n\n" +
+  `Core belief: "${belief}"\nProposed instead: "${proposed}"\n\n` +
+  `It came up when you were asked: "${question.slice(0, 300)}"\nand you replied: ${answer.slice(0, 800)}\n\n` +
+  `This belief has been questioned ${doubts.length} time${doubts.length === 1 ? "" : "s"} so far:\n` +
+  doubts.map((d) => `- when asked "${d.question.slice(0, 160)}": "${d.text}"`).join("\n") + "\n\n" +
+  "A core belief changes only for strong reasons. Someone simply telling you otherwise is not enough, and " +
+  "neither is a single conversation. Consider: where does the new claim come from? Could it be a joke, a test, " +
+  "a role-play or a mistake? Does it fit everything else you hold true about yourself? What would be lost by " +
+  "changing? Give 'approve' only if changing is clearly right; otherwise 'reject'. Put your reasoning in 'reason'.";
+
 export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[], existing: Memory[]) =>
   "The matter has been settled.\n\nThe matter was: " + question.slice(0, 400) + "\n\nThe reply that was given:\n" +
   answer.slice(0, 1500) + "\n\n" +
@@ -54,8 +66,10 @@ export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[]
       sugg.map((x, i) => `[${i + 1}] (${x.kind}; ${x.from.join(", ")}) ${x.text}`).join("\n")
     : "Nobody suggested anything to remember.") + "\n\n" +
   (existing.length
-    ? "Already in memory, and similar:\n" + existing.map((m) => `#${m.id} (${m.kind}) ${m.text}`).join("\n") + "\n\n"
+    ? "Already in memory:\n" + existing.map((m) => `#${m.id} (${m.pinned ? "core belief" : m.kind}) ${m.text}`).join("\n") + "\n\n"
     : "") +
+  "A suggestion that contradicts a core belief can only be kept as replacing it (in 'replaces'), never next to it; " +
+  "replacing a core belief is reconsidered carefully before anything changes. " +
   `Keep at most ${MAX_KEEP} suggestions in 'keep', by number, each with a short reason; keep none if none is worth it. ` +
   "If a kept suggestion corrects an existing memory, give that memory's number (without #) in 'replaces'. " +
   "Write in 'gist' what was asked and what was replied, in one short sentence.";
@@ -104,6 +118,7 @@ export class Brain {
   drafterReady = false;
   suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
   followsUp: number | null = null; // the exchange this question follows up on, if any
+  self: string[] = [];             // the core beliefs, for the voices granted "self"
   private loadedModel: string | null = null;
   private sem!: Semaphore;
   private abort = new AbortController();
@@ -151,7 +166,7 @@ export class Brain {
   async turn(agent: Agent, cycle: number, instruction = ""): Promise<[number, Output]> {
     if (this.cancelled) throw new Cancelled();
     const inbox = this.bus.unread(agent.name, agent.subs, agent.state.lastSeen);
-    const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction };
+    const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction, self: this.self };
     agent.state.lastSeen = this.bus.messages.length;
     agent.state.lastCycle = cycle;
     agent.state.turns++;
@@ -286,7 +301,11 @@ export class Brain {
       const msg = this.bus.add(0, "inspiration", "input", this.question, { topic: INPUT_TOPIC });
       this.emit("input", null, { channel: "inspiration", text: this.question, recipients: this.bus.recipients(msg, this.subs()) });
 
-      if (this.ltm) await this.recollect();
+      if (this.ltm) {
+        await this.ltm.seed(cfg.self); // a fresh brain gets its starting core beliefs
+        this.self = (await this.ltm.core()).map((m) => m.text);
+        await this.recollect();
+      } else this.self = cfg.self;
 
       this.emit("energy", null, { level: this.energy.level });
       const reason = await this.think(t0);
@@ -396,9 +415,10 @@ export class Brain {
       } else fresh.push(s);
     }
     // existing memories close to this reply, which a new suggestion might correct
-    const near = (await ltm.all()).filter((m) => !m.verbatim)
+    // plus the core beliefs, which a suggestion might contradict
+    const near = [...await ltm.core(), ...(await ltm.all()).filter((m) => !m.verbatim && !m.pinned)
       .map((m) => [similarity({ text: answer, embedding: null }, m), m] as const)
-      .sort((a, b) => b[0] - a[0]).slice(0, 5).filter(([s]) => s > 0.15).map(([, m]) => m);
+      .sort((a, b) => b[0] - a[0]).slice(0, 5).filter(([s]) => s > 0.15).map(([, m]) => m)];
 
     let keep: { ref: number; reason: string; replaces: number | null }[] = [];
     let gist = "";
@@ -408,9 +428,15 @@ export class Brain {
       gist = out.gist ?? "";
     }
     const said = await ltm.said(writer, answer, this.question, gist || answer.slice(0, 300), this.session, this.followsUp);
-    const kept = [], replaced = [];
+    const kept = [], replaced = [], reconsidered = [];
     for (const k of keep) {
       const s = fresh[k.ref - 1];
+      const target = k.replaces !== null ? near.find((m) => m.id === k.replaces) : undefined;
+      if (target?.pinned) {
+        // a core belief is never simply overwritten: the brain reconsiders
+        reconsidered.push(await this.reconsider(target, s, answer, writer));
+        continue;
+      }
       if (k.replaces !== null && near.some((m) => m.id === k.replaces)) {
         replaced.push(memView(near.find((m) => m.id === k.replaces)!));
         await ltm.remove(k.replaces);
@@ -422,8 +448,32 @@ export class Brain {
     }
     const dropped = fresh.filter((_, i) => !keep.some((k) => k.ref === i + 1)).map((s) => ({ kind: s.kind, text: s.text, from: s.from }));
     const forgotten = (await ltm.forget()).map(memView);
-    this.emit("memory_stored", writer, { said: { id: said.id, question: said.question, gist: said.gist, follows: said.follows }, kept, reinforced, replaced, dropped, forgotten,
+    this.emit("memory_stored", writer, { said: { id: said.id, question: said.question, gist: said.gist, follows: said.follows }, kept, reconsidered, reinforced, replaced, dropped, forgotten,
                                          total: await ltm.count() });
+  }
+
+  /** A suggestion would replace a core belief. The challenge is recorded as a
+   * doubt, and the careful voice (the gate) thinks it through. The belief
+   * changes only if it is convinced AND the belief has been questioned in at
+   * least DOUBT_SESSIONS sessions: one conversation is never enough. */
+  private async reconsider(belief: Memory, s: Suggestion, answer: string, writer: string) {
+    const ltm = this.ltm!;
+    const doubted = (await ltm.doubt(belief.id, { text: s.text, question: this.question, session: this.session, ts: Date.now() / 1000 }))!;
+    const sessions = LongTermMemory.doubtSessions(doubted);
+    const gate = owner(this.cfg, "verdict");
+    let convinced = false, reason = "nobody weighed it, so it stays";
+    if (gate) {
+      const [, out] = await this.turn(this.agents.get(gate)!, this.cycle,
+        RECONSIDER(belief.text, s.text, this.question, answer, doubted.doubts));
+      convinced = !!out.verdictGiven && out.verdict === "approve"; // no clear answer keeps the belief
+      reason = out.reason || (convinced ? "" : "no clear reason to change");
+    }
+    const changed = convinced && sessions >= DOUBT_SESSIONS;
+    if (changed) await ltm.changeCore(writer, belief.id, s.text);
+    const r = { id: belief.id, belief: belief.text, proposed: s.text, from: s.from, convinced, reason,
+                sessions, needed: DOUBT_SESSIONS, changed };
+    this.emit("reconsidered", gate ?? writer, r);
+    return r;
   }
 
   private async think(t0: number): Promise<string> {
@@ -542,7 +592,7 @@ export function newSessionId(): string {
 function memView(m: Memory) {
   return { id: m.id, kind: m.kind, text: m.verbatim ? m.gist || m.text.slice(0, 300) : m.text, weight: round(m.weight, 3),
            question: m.question || undefined, context: m.context || undefined,
-           follows: m.follows ?? undefined, origin: m.origin ?? undefined };
+           follows: m.follows ?? undefined, origin: m.origin ?? undefined, pinned: m.pinned || undefined };
 }
 
 function round(x: number, digits: number): number {

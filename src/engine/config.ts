@@ -10,7 +10,7 @@ import dirksDefaultYaml from "../config/profiles/dirksdefault.yaml?raw";
 import type { Store } from "./store";
 
 export const ABILITIES = new Set(["write_memory", "write_draft", "interest", "verdict", "speak", "remember", "recognise"]);
-export const GRANTS = new Set(["question", "working_memory", "draft"]);
+export const GRANTS = new Set(["question", "working_memory", "draft", "self"]);
 export const PHASES = new Set(["think", "gate", "speak", "after"]);
 export const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -54,6 +54,7 @@ export interface BrainConfig {
   agents: Map<string, AgentSpec>;
   disabled: Map<string, AgentSpec>;
   topics: Record<string, string>;
+  self: string[]; // the core beliefs a fresh brain starts with
   cycle: Record<string, number>;
   energy: Record<string, number>;
   profile: string;
@@ -145,7 +146,7 @@ export async function load(profile = "diverse", db: Store | null = null, text?: 
   // a switched-off voice simply isn't there: nobody can reach it
   for (const a of agents.values()) a.contacts = a.contacts.filter((c) => agents.has(c));
   const cfg: BrainConfig = {
-    agents, disabled, topics: base.topics,
+    agents, disabled, topics: base.topics, self: (base.self ?? []).map(String),
     cycle: { ...(base.cycle ?? {}), ...(prof.cycle ?? {}) },
     energy: { ...(base.energy ?? {}), ...(prof.energy ?? {}) },
     profile, embed_model: prof.embed_model ?? base.embed_model ?? "",

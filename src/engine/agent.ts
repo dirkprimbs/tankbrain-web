@@ -25,6 +25,7 @@ export interface TurnContext {
   draft: string;
   inbox: Message[];
   instruction: string;
+  self?: string[]; // the brain's core beliefs, for voices granted "self"
 }
 
 export interface Output {
@@ -41,6 +42,7 @@ export interface Output {
   reason?: string;
   reply?: string;
   remember?: string[];
+  verdictGiven?: boolean; // the model actually said approve or reject (not a default)
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
   suggestion?: { kind: "believe" | "interesting"; text: string } | null;
   keep?: { ref: number; reason: string; replaces: number | null }[];
@@ -143,6 +145,10 @@ export class Agent {
   userPrompt(ctx: TurnContext): string {
     const s = this.spec;
     const parts: string[] = [];
+    if (s.grants.includes("self") && ctx.self?.length) {
+      parts.push("## Who is being asked\nThe matter is put to one person, who holds these beliefs about themself. " +
+        "Whatever you write or say as the answer is in their voice, in the first person:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
+    }
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
     if (this.state.comesToMind.length) {
       parts.push("## Things that come to mind\n" + this.state.comesToMind.map((p, i) => `[${i + 1}] ${p}`).join("\n"));
@@ -271,7 +277,8 @@ export class Agent {
     }
     if (this.can("verdict")) {
       const v = str(data.verdict).toLowerCase();
-      out.verdict = v === "approve" || v === "reject" ? v : "approve";
+      out.verdictGiven = v === "approve" || v === "reject";
+      out.verdict = out.verdictGiven ? (v as "approve" | "reject") : "approve";
       out.reason = str(data.reason).trim();
     }
     if (this.can("speak")) out.reply = unquote(str(data.reply));

@@ -16,8 +16,14 @@
 // so a conversation forms a thread; a belief or interest points to the exchange
 // it "came from". Using a memory strengthens its neighbours a little, and
 // forgetting keeps a thread in order.
+//
+// Core beliefs (who the brain is: its name, its character) are pinned: they
+// never fade and are never forgotten. They can change, but only after the
+// brain has reconsidered (see Brain.reconsider): each challenge is recorded
+// as a doubt, and a change needs both a convinced deliberation and doubts
+// raised in more than one session.
 
-import type { MemoryRow, Store } from "../store";
+import type { Doubt, MemoryRow, Store } from "../store";
 
 export type Embedder = (text: string) => Promise<number[] | null>;
 export type MemoryKind = "said" | "believe" | "interesting";
@@ -34,6 +40,7 @@ export const REINFORCE = 0.15;     // a new suggestion that repeats a memory str
 export const SAME = 0.9;           // similarity at which two texts count as the same memory
 export const NEIGHBOUR = 0.05;     // what using a memory gives the memories linked to it
 export const THREAD_DEPTH = 2;     // earlier exchanges a follow-up pulls in
+export const DOUBT_SESSIONS = 2;   // sessions a core belief must have been questioned in before it can change
 
 export type Judgement = keyof typeof JUDGE_DELTA;
 
@@ -54,6 +61,8 @@ export interface Memory {
   follows: number | null;
   origin: number | null;
   context: string;      // for beliefs and interests: what was asked when it came up
+  pinned: boolean;
+  doubts: Doubt[];
   embedding: number[] | null;
 }
 
@@ -89,7 +98,7 @@ export function normalise(r: MemoryRow): Memory {
     age: r.age ?? PROTECT_SESSIONS, uses: r.uses ?? 0, created: r.created ?? now(), used: r.used ?? null,
     session: r.session ?? null, from: r.from ?? [], verbatim: !!r.verbatim, question: r.question ?? "",
     gist: r.gist ?? "", follows: r.follows ?? null, origin: r.origin ?? null, context: r.context ?? "",
-    embedding: r.embedding ?? null,
+    pinned: !!r.pinned, doubts: r.doubts ?? [], embedding: r.embedding ?? null,
   };
 }
 
@@ -121,7 +130,7 @@ export class LongTermMemory {
     const tx = this.db.transaction("memories", "readwrite");
     for (const r of await tx.store.getAll()) {
       const m = normalise(r);
-      await tx.store.put({ ...m, weight: m.weight * DECAY, age: m.age + 1 } as MemoryRow);
+      await tx.store.put({ ...m, weight: m.pinned ? m.weight : m.weight * DECAY, age: m.age + 1 } as MemoryRow);
     }
     await tx.done;
   }
@@ -133,7 +142,8 @@ export class LongTermMemory {
     const all = await this.all();
     const last = all.find((m) => m.verbatim) ?? null;
     const q = { text: question, embedding: await this.vector(question) };
-    const scored = all.filter((m) => !m.verbatim)
+    // core beliefs aren't recalled: the voices that speak for the brain always have them
+    const scored = all.filter((m) => !m.verbatim && !m.pinned)
       .map((m) => [similarity(q, m), m] as const)
       .filter(([s]) => s >= floor)
       .sort((a, b) => b[0] * 0.7 + b[1].weight * 0.3 - (a[0] * 0.7 + a[1].weight * 0.3))
@@ -147,7 +157,7 @@ export class LongTermMemory {
     const r = await this.db.get("memories", id);
     if (!r) return null;
     const m = normalise(r);
-    m.weight = clamp(m.weight + JUDGE_DELTA[j]);
+    if (!m.pinned) m.weight = clamp(m.weight + JUDGE_DELTA[j]);
     if (j !== "unrelated") {
       m.uses++;
       m.used = now();
@@ -183,7 +193,7 @@ export class LongTermMemory {
   async findSame(text: string, embedding: number[] | null): Promise<Memory | null> {
     let best: [number, Memory] | null = null;
     for (const m of await this.all()) {
-      if (m.verbatim) continue;
+      if (m.verbatim || m.pinned) continue;
       const s = similarity({ text, embedding }, m);
       if (s >= SAME && (!best || s > best[0])) best = [s, m];
     }
@@ -205,7 +215,7 @@ export class LongTermMemory {
   /** Lay down a memory. Only the owner (Recall) writes long-term memory. */
   async store(who: string, kind: MemoryKind, text: string,
               opts: { weight?: number; session?: string | null; from?: string[]; embedding?: number[] | null;
-                      origin?: number | null; context?: string } = {}): Promise<Memory | null> {
+                      origin?: number | null; context?: string; pinned?: boolean } = {}): Promise<Memory | null> {
     if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
     text = text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
@@ -213,6 +223,7 @@ export class LongTermMemory {
       kind, text, weight: clamp(opts.weight ?? 0.5), age: 0, uses: 0, created: now(), used: null,
       session: opts.session ?? null, from: opts.from ?? [], verbatim: false, question: "", gist: "",
       follows: null, origin: opts.origin ?? null, context: (opts.context ?? "").slice(0, 300),
+      pinned: !!opts.pinned, doubts: [] as Doubt[],
       embedding: opts.embedding !== undefined ? opts.embedding : await this.vector(text),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
@@ -233,11 +244,49 @@ export class LongTermMemory {
     const row = {
       kind: "said" as const, text: reply.trim().slice(0, MAX_VERBATIM), weight: 0.6, age: 0, uses: 0, created: now(),
       used: null, session, from: [], verbatim: true, question: question.slice(0, 300), gist: g,
-      follows, origin: null, context: "",
+      follows, origin: null, context: "", pinned: false, doubts: [] as Doubt[],
       embedding: await this.vector(`${question}\n${g}`),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
     return { ...row, id };
+  }
+
+  /** The core beliefs: who the brain is. */
+  async core(): Promise<Memory[]> {
+    return (await this.all()).filter((m) => m.pinned).sort((a, b) => a.id - b.id);
+  }
+
+  /** A fresh brain (no core beliefs yet) is given its starting ones. */
+  async seed(beliefs: string[]): Promise<number> {
+    if ((await this.core()).length) return 0;
+    for (const b of beliefs) await this.store(this.owner, "believe", b, { weight: 1, pinned: true });
+    return beliefs.length;
+  }
+
+  /** Record that a core belief was questioned. Returns the belief with all its doubts. */
+  async doubt(id: number, d: Doubt): Promise<Memory | null> {
+    const r = await this.db.get("memories", id);
+    if (!r) return null;
+    const m = normalise(r);
+    m.doubts = [...m.doubts, { ...d, text: d.text.slice(0, 300), question: d.question.slice(0, 300) }].slice(-10);
+    await this.put(m);
+    return m;
+  }
+
+  /** Sessions a core belief has been questioned in. */
+  static doubtSessions(m: Memory): number {
+    return new Set(m.doubts.map((d) => d.session ?? String(d.ts))).size;
+  }
+
+  /** After reconsidering: a core belief is changed (it stays pinned; its doubts are settled). */
+  async changeCore(who: string, id: number, text: string): Promise<Memory | null> {
+    if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
+    const r = await this.db.get("memories", id);
+    if (!r) return null;
+    const m = normalise(r);
+    const changed = { ...m, text: text.trim().slice(0, MAX_TEXT), doubts: [], used: now(), embedding: await this.vector(text) };
+    await this.put(changed);
+    return changed;
   }
 
   /** Replace a memory (e.g. a belief that turned out wrong). */
@@ -249,7 +298,7 @@ export class LongTermMemory {
    * younger than PROTECT_SESSIONS and the verbatim reply are safe. */
   async forget(capacity = CAPACITY): Promise<Memory[]> {
     const all = await this.all();
-    const safe = (m: Memory) => m.verbatim || m.age < PROTECT_SESSIONS;
+    const safe = (m: Memory) => m.pinned || m.verbatim || m.age < PROTECT_SESSIONS;
     const gone = all.filter((m) => !safe(m) && m.weight < FADED);
     const evictable = all.filter((m) => !safe(m) && !gone.includes(m))
       .sort((a, b) => a.weight - b.weight || a.created - b.created);

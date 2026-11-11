@@ -201,7 +201,7 @@ describe("whole sessions", () => {
       expect(kinds).toContain(k);
     }
     // the reply, word for word, plus the one suggestion two voices agreed on
-    const mems = await ltm.all();
+    const mems = (await ltm.all()).filter((m) => !m.pinned); // besides the core beliefs
     expect(mems.length).toBe(2);
     expect(mems.find((m) => m.verbatim)!.text).toBe("It's 51.");
     const kept = mems.find((m) => m.kind === "interesting")!;
@@ -222,7 +222,7 @@ describe("whole sessions", () => {
     const prompts = llm.calls.filter((c) => c.system.includes("Your name is Drafter."));
     expect(prompts.slice(-6).map((c) => c.user).join("")).toContain('Earlier I was asked "What is 17 times 3?" and replied: It\'s 51.');
     // the first reply has faded to its gist; the new one is word for word
-    const after = await ltm.all();
+    const after = (await ltm.all()).filter((m) => !m.pinned);
     expect(after.filter((m) => m.verbatim).length).toBe(1);
     expect(after.some((m) => !m.verbatim && m.kind === "said" && m.text.startsWith("Asked what 17 times 3"))).toBe(true);
     // the same suggestion again strengthened the memory instead of adding one
@@ -336,7 +336,7 @@ describe("whole sessions", () => {
     expect(ev.find((e) => e.kind === "phase" && e.data.phase === "speak")!.data.reason).toBe("no draft");
     expect(ev.some((e) => e.kind === "turn_start" && e.agent === "Voice")).toBe(false);
     expect(ev.some((e) => e.kind === "verdict")).toBe(false);
-    expect(await ltm.count()).toBe(0); // nothing worth remembering
+    expect((await ltm.all()).filter((m) => !m.pinned).length).toBe(0); // nothing worth remembering
   });
 
   it("stopping cancels the session and its running calls", async () => {

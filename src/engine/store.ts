@@ -43,6 +43,15 @@ export interface MemoryRow {
   follows?: number | null; // "said": the exchange this one followed up on
   origin?: number | null;  // "believe"/"interesting": the exchange it came from
   context?: string;        // ...and what was asked there (kept if that exchange is forgotten)
+  pinned?: boolean;        // a core belief: never fades or is forgotten, changes only after reconsidering
+  doubts?: Doubt[];        // for a core belief: the times it was questioned
+}
+
+export interface Doubt {
+  text: string;     // what was proposed instead
+  question: string; // what was asked when it came up
+  session: string | null;
+  ts: number;
 }
 
 export interface ProfileRow {

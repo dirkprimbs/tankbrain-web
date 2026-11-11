@@ -10,6 +10,17 @@
 embed_model: openai/text-embedding-3-small   # OpenRouter embeddings, for Recall
 input_pos: [0.0, -0.15, -0.05]   # thalamus: where the inspiration enters
 
+# Who the brain is. A fresh brain gets these as its core beliefs: pinned
+# long-term memories that never fade. They can change, but only after the brain
+# has reconsidered (see README, Long-term memory). Voices granted "self" (those
+# that speak for the brain or check what it says) are always given the current
+# core beliefs; the others never learn them.
+self:
+  - "My name is Norbert."
+  - "I am curious and warm, with a dry sense of humour."
+  - "I would rather say plainly that I don't know than guess."
+  - "I don't know what I run on, and I'm at peace with that."
+
 topics:
   inspiration: "the question or idea that came up"
   focus: "what exactly is being asked"
@@ -51,7 +62,7 @@ agents:
     think: false
     subscriptions: [inspiration]
     posts_to: [focus]
-    grants: [question]
+    grants: [question, self]
     abilities: [recognise]
     max_posts: 1
     persona: |
@@ -204,7 +215,7 @@ agents:
     subscriptions: [inspiration, focus, ideas, logic, plan, critique, memories, telling]
     posts_to: []        # changes are announced on #draft automatically, with the 'note'
     contacts: [Critic, Logician, Coordinator, Listener, Storyteller]
-    grants: [question, working_memory, draft]
+    grants: [question, working_memory, draft, self]
     abilities: [write_draft]
     max_posts: 1
     persona: |
@@ -253,7 +264,7 @@ agents:
     subscriptions: [draft]
     posts_to: [critique]
     contacts: [Drafter, Logician, Listener]
-    grants: [question, draft]
+    grants: [question, draft, self]
     max_posts: 1
     persona: |
       You are a sharp but fair critic. You read the current draft against the matter at
@@ -293,7 +304,7 @@ agents:
     model: google/gemma-4-26b-a4b-it
     think: false
     phase: gate
-    grants: [question, draft]
+    grants: [question, draft, self]
     abilities: [verdict]
     persona: |
       You are the last careful check before anything is said out loud. You read the
@@ -313,7 +324,7 @@ agents:
     model: google/gemma-4-26b-a4b-it
     think: false
     phase: speak
-    grants: [question, draft]
+    grants: [question, draft, self]
     abilities: [speak]
     persona: |
       You are the one who speaks. You take the prepared answer and say it in a clear,

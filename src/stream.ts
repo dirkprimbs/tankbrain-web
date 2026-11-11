@@ -243,6 +243,15 @@ export class Stream {
           (m.thread?.length ? `\n   pulled in from the same conversation: ${m.thread.map((t: any) => `"${t.question}"`).join(" → ")}` : "")).join("\n"), "memory");
         break;
       }
+      case "reconsidered": {
+        const verdict = d.changed ? `→ CHANGED to "${d.proposed}"`
+          : d.convinced ? `→ kept for now: questioned in ${d.sessions} session${d.sessions === 1 ? "" : "s"}, needs ${d.needed} before it can change`
+          : "→ kept";
+        node = this.item(e, "post", "RECONSIDERS A CORE BELIEF",
+          `core belief: "${d.belief}"\nproposed instead: "${d.proposed}"  (${(d.from ?? []).join(", ")})\n${d.reason ? `thinking: ${d.reason}\n` : ""}${verdict}`,
+          "memory");
+        break;
+      }
       case "memory_suggested":
         node = this.item(e, "post", "SUGGESTS REMEMBERING", `${KIND[d.kind] ?? d.kind}: ${d.text}`, "memory minor");
         break;

@@ -52,6 +52,7 @@ export async function init(): Promise<void> {
   await importDemos(db);        // example sessions shipped with the page (public/demos/)
   await forgetDemoMemories(db);
   ltm = new LongTermMemory(db, (t) => openrouter.embed(t));
+  await ltm.seed((await config.load("dirksdefault", db)).self); // a fresh brain's core beliefs
   speech = new SpeechStore(db, { kokoro: kokoroEngine(synth), openrouter: tts });
 }
 
@@ -219,6 +220,7 @@ export async function forgetAll(): Promise<void> {
   if (state.task) throw new ApiError(409, "a session is running; stop it first");
   await forgetEverything();
   await importDemos(db); // the shipped example sessions come back
+  await ltm.seed((await config.load("dirksdefault", db)).self); // and a fresh brain is Norbert again
 }
 
 /** A session as a portable file, for replaying (events and spoken audio). */
@@ -274,7 +276,7 @@ export async function importState(f: File): Promise<string> {
 
 /** The long-term memories, strongest first (for looking at, not for the brain). */
 export async function memoryList() {
-  return (await ltm.all()).sort((a, b) => Number(b.verbatim) - Number(a.verbatim) || b.weight - a.weight)
+  return (await ltm.all()).sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.verbatim) - Number(a.verbatim) || b.weight - a.weight)
     .map(({ embedding: _e, ...m }) => m);
 }
 
