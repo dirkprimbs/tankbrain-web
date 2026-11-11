@@ -40,6 +40,9 @@ export interface MemoryRow {
   verbatim?: boolean;
   question?: string;
   gist?: string;
+  follows?: number | null; // "said": the exchange this one followed up on
+  origin?: number | null;  // "believe"/"interesting": the exchange it came from
+  context?: string;        // ...and what was asked there (kept if that exchange is forgotten)
 }
 
 export interface ProfileRow {

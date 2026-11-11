@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAPACITY, DECAY, JUDGE_DELTA, LongTermMemory, PROTECT_SESSIONS, REINFORCE } from "../src/engine/memory/longterm";
+import { CAPACITY, DECAY, JUDGE_DELTA, LongTermMemory, NEIGHBOUR, PROTECT_SESSIONS, REINFORCE } from "../src/engine/memory/longterm";
 import { fresh } from "./helpers";
 
 const brainMemory = async () => new LongTermMemory((await fresh()).db, null, "Recall");
@@ -68,5 +68,46 @@ describe("long-term memory: weights, fading and forgetting", () => {
     const [m] = await new LongTermMemory(db).all();
     expect(m.kind).toBe("believe");
     expect(m.weight).toBeCloseTo(0.3);
+  });
+
+  it("links a conversation into a thread and keeps it in order when the middle is forgotten", async () => {
+    const ltm = await brainMemory();
+    const a = await ltm.said("Recall", "Reply A", "Question A?", "gist A", "s1");
+    const b = await ltm.said("Recall", "Reply B", "Question B?", "gist B", "s2", a.id);
+    const c = await ltm.said("Recall", "Reply C", "Question C?", "gist C", "s3", b.id);
+    expect((await ltm.thread(c)).map((m) => m.question)).toEqual(["Question A?", "Question B?"]);
+    expect((await ltm.thread(c, 1)).map((m) => m.question)).toEqual(["Question B?"]);
+    // a faded exchange keeps its question
+    expect((await ltm.all()).find((m) => m.id === a.id)!.text).toBe("gist A");
+    // the middle fades out: the thread closes over it
+    for (let i = 0; i < PROTECT_SESSIONS; i++) await ltm.age();
+    const rowB = (await ltm.all()).find((m) => m.id === b.id)!;
+    await ltm["db"].put("memories", { ...rowB, weight: 0.01 } as any);
+    expect((await ltm.forget()).map((m) => m.id)).toEqual([b.id]);
+    expect((await ltm.all()).find((m) => m.id === c.id)!.follows).toBe(a.id);
+  });
+
+  it("a belief keeps what was asked when the exchange it came from is forgotten", async () => {
+    const ltm = await brainMemory();
+    const ex = await ltm.said("Recall", "Reply", "Is the sky blue?", "gist", "s1");
+    await ltm.said("Recall", "Next", "Something else?", "gist 2", "s2"); // ex is no longer the latest
+    const belief = (await ltm.store("Recall", "believe", "Rayleigh scattering explains it.", { origin: ex.id, context: "Is the sky blue?" }))!;
+    for (let i = 0; i < PROTECT_SESSIONS; i++) await ltm.age();
+    const rowEx = (await ltm.all()).find((m) => m.id === ex.id)!;
+    await ltm["db"].put("memories", { ...rowEx, weight: 0.01 } as any);
+    await ltm.forget();
+    const after = (await ltm.all()).find((m) => m.id === belief.id)!;
+    expect(after.origin).toBeNull();
+    expect(after.context).toBe("Is the sky blue?");
+  });
+
+  it("using a memory strengthens the memories linked to it a little", async () => {
+    const ltm = await brainMemory();
+    const ex = await ltm.said("Recall", "Reply", "Q?", "gist", "s1");
+    const belief = (await ltm.store("Recall", "believe", "A belief.", { weight: 0.5, origin: ex.id }))!;
+    await ltm.judge(ex.id, "related");
+    expect((await ltm.all()).find((m) => m.id === belief.id)!.weight).toBeCloseTo(0.5 + NEIGHBOUR);
+    await ltm.judge(ex.id, "reminds"); // only a real use spreads
+    expect((await ltm.all()).find((m) => m.id === belief.id)!.weight).toBeCloseTo(0.5 + NEIGHBOUR);
   });
 });

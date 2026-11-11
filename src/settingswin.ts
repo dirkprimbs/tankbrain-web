@@ -313,8 +313,13 @@ export class SettingsWindow {
       const bar = h("span", "mem-weight");
       bar.style.setProperty("--w", String(m.weight));
       bar.title = `weight ${m.weight.toFixed(2)} · used ${m.uses}× · ${m.age} sessions old`;
-      const text = m.verbatim ? `${m.text.slice(0, 240)}${m.text.length > 240 ? "…" : ""}  (latest reply, word for word)` : m.text;
-      row.append(bar, h("span", "mem-kind", KIND[m.kind] ?? m.kind), h("span", "mem-text", text));
+      const reply = m.verbatim ? `${m.text.slice(0, 240)}${m.text.length > 240 ? "…" : ""}  (latest, word for word)` : m.text;
+      const text = m.kind === "said" && m.question ? `asked "${m.question}" → ${reply}` : reply;
+      const where = m.kind === "said" ? (m.follows !== null ? "↳ continues an earlier exchange" : "")
+        : m.context ? `from when asked "${m.context}"` : "";
+      const cell = h("span", "mem-text", text);
+      if (where) cell.append(h("span", "mem-link", where));
+      row.append(bar, h("span", "mem-kind", KIND[m.kind] ?? m.kind), cell);
       this.memList.append(row);
     }
   }

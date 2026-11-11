@@ -220,7 +220,7 @@ describe("whole sessions", () => {
     expect(firstTurns[0].agent).toBe("Listener");
     expect(firstTurns[0].data.cycle).toBe(0);
     const prompts = llm.calls.filter((c) => c.system.includes("Your name is Drafter."));
-    expect(prompts.at(-1)!.user + prompts.slice(-6).map((c) => c.user).join("")).toContain("Earlier I said");
+    expect(prompts.slice(-6).map((c) => c.user).join("")).toContain('Earlier I was asked "What is 17 times 3?" and replied: It\'s 51.');
     // the first reply has faded to its gist; the new one is word for word
     const after = await ltm.all();
     expect(after.filter((m) => m.verbatim).length).toBe(1);
@@ -228,6 +228,21 @@ describe("whole sessions", () => {
     // the same suggestion again strengthened the memory instead of adding one
     expect(after.filter((m) => m.kind === "interesting").length).toBe(1);
     expect(ev2.find((e) => e.kind === "memory_stored")!.data.reinforced.length).toBe(1);
+    // the two exchanges form a thread; the faded one still knows what was asked
+    const first = after.find((m) => m.kind === "said" && !m.verbatim)!;
+    const second = after.find((m) => m.verbatim)!;
+    expect(first.question).toBe("What is 17 times 3?");
+    expect(second.question).toBe("And times 4?");
+    expect(second.follows).toBe(first.id);
+    // the interesting memory points to the exchange it came from
+    expect(after.find((m) => m.kind === "interesting")!.context).toBe("What is 17 times 3?");
+
+    // a follow-up of the follow-up pulls in the start of the conversation
+    await new Brain(cfg, llm, log, ltm).run("And times 5?");
+    const latest = llm.calls.filter((c) => c.system.includes("Your name is Drafter.")).slice(-6).map((c) => c.user).join("");
+    expect(latest).toContain("This continues a conversation.");
+    expect(latest).toContain('"What is 17 times 3?"');
+    expect(latest).toContain('"And times 4?"');
   });
 
   it("drafts by edits, with sources", async () => {

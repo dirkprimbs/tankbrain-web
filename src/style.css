@@ -345,3 +345,4 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 .mem-weight { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--cyan, #00e5ff) calc(var(--w) * 100%), rgba(255,255,255,.12) 0); align-self: center; }
 .mem-kind { color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
 .mem-text { color: var(--text); }
+.mem-link { display: block; color: var(--dim); font-size: 11px; }

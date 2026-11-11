@@ -10,6 +10,12 @@
 // Every memory has a weight (0..1): it rises when the memory proves useful,
 // falls when it comes to mind for nothing, and fades a little every session.
 // Capacity is limited: the weakest are forgotten first.
+//
+// Memories are linked on purpose, not by time alone (when they happened is
+// stored anyway): an exchange that followed up on an earlier one "follows" it,
+// so a conversation forms a thread; a belief or interest points to the exchange
+// it "came from". Using a memory strengthens its neighbours a little, and
+// forgetting keeps a thread in order.
 
 import type { MemoryRow, Store } from "../store";
 
@@ -26,6 +32,8 @@ export const MAX_VERBATIM = 2000;
 export const JUDGE_DELTA = { unrelated: -0.05, reminds: 0.1, related: 0.25 } as const;
 export const REINFORCE = 0.15;     // a new suggestion that repeats a memory strengthens it
 export const SAME = 0.9;           // similarity at which two texts count as the same memory
+export const NEIGHBOUR = 0.05;     // what using a memory gives the memories linked to it
+export const THREAD_DEPTH = 2;     // earlier exchanges a follow-up pulls in
 
 export type Judgement = keyof typeof JUDGE_DELTA;
 
@@ -41,8 +49,11 @@ export interface Memory {
   session: string | null;
   from: string[];       // who suggested it
   verbatim: boolean;    // the latest reply, word for word
-  question: string;     // for "said": what it was the reply to
+  question: string;     // for "said": what was asked
   gist: string;         // for the verbatim reply: what it fades to
+  follows: number | null;
+  origin: number | null;
+  context: string;      // for beliefs and interests: what was asked when it came up
   embedding: number[] | null;
 }
 
@@ -77,7 +88,8 @@ export function normalise(r: MemoryRow): Memory {
     id: r.id!, kind, text: String(r.text ?? ""), weight: typeof r.weight === "number" ? clamp(r.weight) : 0.3,
     age: r.age ?? PROTECT_SESSIONS, uses: r.uses ?? 0, created: r.created ?? now(), used: r.used ?? null,
     session: r.session ?? null, from: r.from ?? [], verbatim: !!r.verbatim, question: r.question ?? "",
-    gist: r.gist ?? "", embedding: r.embedding ?? null,
+    gist: r.gist ?? "", follows: r.follows ?? null, origin: r.origin ?? null, context: r.context ?? "",
+    embedding: r.embedding ?? null,
   };
 }
 
@@ -141,7 +153,30 @@ export class LongTermMemory {
       m.used = now();
     }
     await this.put(m);
+    if (j === "related") await this.nudgeNeighbours(m);
     return m;
+  }
+
+  /** The memories linked to m, either way. */
+  async neighbours(m: Memory): Promise<Memory[]> {
+    return (await this.all()).filter((x) => x.id !== m.id &&
+      (x.id === m.follows || x.id === m.origin || x.follows === m.id || x.origin === m.id));
+  }
+
+  private async nudgeNeighbours(m: Memory, by = NEIGHBOUR): Promise<void> {
+    for (const n of await this.neighbours(m)) await this.put({ ...n, weight: clamp(n.weight + by) });
+  }
+
+  /** The exchanges m followed up on, oldest first (at most depth of them). */
+  async thread(m: Memory, depth = THREAD_DEPTH): Promise<Memory[]> {
+    const all = new Map((await this.all()).map((x) => [x.id, x]));
+    const out: Memory[] = [];
+    let at = m.follows !== null ? all.get(m.follows) : undefined;
+    while (at && out.length < depth && !out.includes(at)) {
+      out.unshift(at);
+      at = at.follows !== null ? all.get(at.follows) : undefined;
+    }
+    return out;
   }
 
   /** An existing memory this text repeats, if any. */
@@ -163,35 +198,42 @@ export class LongTermMemory {
     m.uses++;
     m.used = now();
     await this.put(m);
+    await this.nudgeNeighbours(m);
     return m;
   }
 
   /** Lay down a memory. Only the owner (Recall) writes long-term memory. */
   async store(who: string, kind: MemoryKind, text: string,
-              opts: { weight?: number; session?: string | null; from?: string[]; embedding?: number[] | null } = {}): Promise<Memory | null> {
+              opts: { weight?: number; session?: string | null; from?: string[]; embedding?: number[] | null;
+                      origin?: number | null; context?: string } = {}): Promise<Memory | null> {
     if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
     text = text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
     const row = {
       kind, text, weight: clamp(opts.weight ?? 0.5), age: 0, uses: 0, created: now(), used: null,
       session: opts.session ?? null, from: opts.from ?? [], verbatim: false, question: "", gist: "",
+      follows: null, origin: opts.origin ?? null, context: (opts.context ?? "").slice(0, 300),
       embedding: opts.embedding !== undefined ? opts.embedding : await this.vector(text),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
     return { ...row, id };
   }
 
-  /** The reply just given becomes the verbatim "said" memory; the previous one fades to its gist. */
-  async said(who: string, reply: string, question: string, gist: string, session: string | null): Promise<Memory> {
+  /** The exchange just completed becomes the verbatim "said" memory (what was
+   * asked and the reply, word for word); the previous one fades to the question
+   * and the gist of its reply. follows: the exchange this one followed up on. */
+  async said(who: string, reply: string, question: string, gist: string, session: string | null,
+             follows: number | null = null): Promise<Memory> {
     if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
     for (const m of (await this.all()).filter((x) => x.verbatim)) {
       const text = (m.gist || m.text).slice(0, MAX_TEXT);
-      await this.put({ ...m, verbatim: false, text, gist: "", embedding: await this.vector(text) });
+      await this.put({ ...m, verbatim: false, text, gist: "", embedding: await this.vector(`${m.question}\n${text}`) });
     }
     const g = (gist.trim() || reply.trim()).slice(0, MAX_TEXT);
     const row = {
       kind: "said" as const, text: reply.trim().slice(0, MAX_VERBATIM), weight: 0.6, age: 0, uses: 0, created: now(),
       used: null, session, from: [], verbatim: true, question: question.slice(0, 300), gist: g,
+      follows, origin: null, context: "",
       embedding: await this.vector(`${question}\n${g}`),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
@@ -212,6 +254,20 @@ export class LongTermMemory {
     const evictable = all.filter((m) => !safe(m) && !gone.includes(m))
       .sort((a, b) => a.weight - b.weight || a.created - b.created);
     while (all.length - gone.length > capacity && evictable.length) gone.push(evictable.shift()!);
+    const goneIds = new Map(gone.map((m) => [m.id, m]));
+    // a thread closes over a forgotten exchange: A → B → C without B becomes A → C
+    const skip = (id: number | null): number | null => {
+      while (id !== null && goneIds.has(id)) id = goneIds.get(id)!.follows;
+      return id;
+    };
+    for (const m of all) {
+      if (goneIds.has(m.id)) continue;
+      const follows = skip(m.follows);
+      const lost = m.origin !== null && goneIds.has(m.origin) ? goneIds.get(m.origin)! : null;
+      if (follows !== m.follows || lost) {
+        await this.put({ ...m, follows, origin: lost ? null : m.origin, context: lost ? m.context || lost.question : m.context });
+      }
+    }
     for (const m of gone) await this.db.delete("memories", m.id);
     return gone;
   }

@@ -3,6 +3,10 @@ import type { AgentInfo, TankEvent } from "./types";
 import { GROUP_LABELS } from "./types";
 
 const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
+/** One memory as a line: an exchange shows what was asked; a belief, where it came from. */
+const memLine = (m: any) => m.kind === "said" && m.question
+  ? `asked "${m.question}" → I said: ${m.text}`
+  : `${KIND[m.kind] ?? m.kind}: ${m.text}${m.context ? `  (from when I was asked "${m.context}")` : ""}`;
 
 export interface FilterState {
   hidden: Set<string>;
@@ -230,12 +234,13 @@ export class Stream {
         node.title = "click to show the reply window";
         break;
       case "comes_to_mind":
-        node = this.item(e, "post", "COMES TO MIND", (d.items as any[]).map((m) => `• ${KIND[m.kind] ?? m.kind}: ${m.text}  (weight ${m.weight.toFixed(2)})`).join("\n"), "memory");
+        node = this.item(e, "post", "COMES TO MIND", (d.items as any[]).map((m) => `• ${memLine(m)}  (weight ${m.weight.toFixed(2)})`).join("\n"), "memory");
         break;
       case "recognised": {
         const mark: Record<string, string> = { related: "↩ FOLLOWS UP ON", reminds: "≈ REMINDS ME OF", unrelated: "✗ unrelated" };
         node = this.item(e, "post", "RECOGNISED", (d.items as any[]).map((m) =>
-          `${mark[m.judgement] ?? m.judgement}: ${m.text}  (weight → ${m.weight.toFixed(2)})`).join("\n"), "memory");
+          `${mark[m.judgement] ?? m.judgement}: ${memLine(m)}  (weight → ${m.weight.toFixed(2)})` +
+          (m.thread?.length ? `\n   pulled in from the same conversation: ${m.thread.map((t: any) => `"${t.question}"`).join(" → ")}` : "")).join("\n"), "memory");
         break;
       }
       case "memory_suggested":
@@ -243,7 +248,10 @@ export class Stream {
         break;
       case "memory_stored": {
         const lines: string[] = [];
-        if (d.said?.gist) lines.push(`said (kept word for word): ${d.said.gist}`);
+        if (d.said?.gist) {
+          lines.push(`exchange kept word for word: ${d.said.question ? `asked "${d.said.question}" → ` : ""}${d.said.gist}` +
+            (d.said.follows ? "  (continues an earlier exchange)" : ""));
+        }
         for (const m of d.kept ?? []) lines.push(`+ kept ${KIND[m.kind] ?? m.kind}: ${m.text}  (${m.from.join(", ")}; ${m.reason || "no reason given"})`);
         for (const m of d.reinforced ?? []) lines.push(`↑ strengthened: ${m.text}  (weight ${m.weight.toFixed(2)}; suggested again by ${m.from.join(", ")})`);
         for (const m of d.replaced ?? []) lines.push(`⟳ replaced: ${m.text}`);

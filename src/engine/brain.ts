@@ -33,11 +33,18 @@ type Suggestion = { kind: "believe" | "interesting"; text: string; from: string[
 
 const KIND_LABEL = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
 
-/** How a memory appears to the Listener when it comes to mind. */
+/** How a memory appears to the Listener when it comes to mind. A "said"
+ * memory is an exchange: what was asked, and what was replied. */
 export function describeMemory(m: Memory): string {
-  if (m.verbatim) return `(${KIND_LABEL.said}, in reply to "${m.question.slice(0, 200)}") ${m.text.slice(0, 700)}`;
-  return `(${KIND_LABEL[m.kind]}) ${m.text}`;
+  if (m.kind === "said") {
+    const reply = m.verbatim ? m.text.slice(0, 700) : m.text;
+    return `(an exchange${m.verbatim ? ", the latest" : ""}) I was asked: "${m.question.slice(0, 200)}" I replied${m.verbatim ? "" : " (in gist)"}: ${reply}`;
+  }
+  return `(${KIND_LABEL[m.kind]}${m.context ? `, from when I was asked "${m.context.slice(0, 120)}"` : ""}) ${m.text}`;
 }
+
+/** An exchange as one line on #memories. */
+const exchangeLine = (m: Memory) => `I was asked "${m.question.slice(0, 200)}" and replied: ${m.text}`;
 
 export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[], existing: Memory[]) =>
   "The matter has been settled.\n\nThe matter was: " + question.slice(0, 400) + "\n\nThe reply that was given:\n" +
@@ -96,6 +103,7 @@ export class Brain {
   cycle = 0;
   drafterReady = false;
   suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
+  followsUp: number | null = null; // the exchange this question follows up on, if any
   private loadedModel: string | null = null;
   private sem!: Semaphore;
   private abort = new AbortController();
@@ -266,6 +274,7 @@ export class Brain {
     this.cycle = 0;
     this.drafterReady = false;
     this.suggestions = new Map();
+    this.followsUp = null;
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
     const elapsed = () => round((performance.now() - t0) / 1000, 1);
@@ -337,15 +346,26 @@ export class Brain {
       // not judged at all counts as not useful
       const j: Judgement = judged.get(i + 1) ?? "unrelated";
       const after = await ltm.judge(m.id, j);
-      items.push({ ...memView(m), judgement: j, weight: round(after?.weight ?? m.weight, 3) });
-      if (j === "related" && "memories" in this.cfg.topics) {
-        const text = m.kind === "said"
-          ? `Earlier I said${m.question ? ` (in reply to "${m.question.slice(0, 200)}")` : ""}: ${m.text}`
-          : `I remember (${KIND_LABEL[m.kind]}): ${m.text}`;
-        const msg = this.bus.add(0, name, "post", text, { topic: "memories" });
-        this.emit("post", name, { topic: "memories", text: msg.text, id: msg.id, system: true,
-                                  recipients: this.bus.recipients(msg, this.subs()) });
+      const item: Record<string, any> = { ...memView(m), judgement: j, weight: round(after?.weight ?? m.weight, 3) };
+      items.push(item);
+      if (j !== "related") continue;
+      // the newest related exchange is what this question follows up on
+      if (m.kind === "said" && (this.followsUp === null || m.verbatim)) this.followsUp = m.id;
+      if (!("memories" in this.cfg.topics)) continue;
+      let text: string;
+      if (m.kind === "said") {
+        // a follow-up of a follow-up still needs the start of the conversation
+        const thread = await ltm.thread(m);
+        item.thread = thread.map(memView);
+        text = thread.length
+          ? "This continues a conversation. " + [...thread, m].map(exchangeLine).join(" Then ")
+          : "Earlier " + exchangeLine(m);
+      } else {
+        text = `I remember (${KIND_LABEL[m.kind]}${m.context ? `, from when I was asked "${m.context.slice(0, 120)}"` : ""}): ${m.text}`;
       }
+      const msg = this.bus.add(0, name, "post", text, { topic: "memories" });
+      this.emit("post", name, { topic: "memories", text: msg.text, id: msg.id, system: true,
+                                recipients: this.bus.recipients(msg, this.subs()) });
     }
     this.emit("recognised", name, { items });
   }
@@ -387,7 +407,7 @@ export class Brain {
       keep = (out.keep ?? []).filter((k) => k.ref >= 1 && k.ref <= fresh.length).slice(0, MAX_KEEP);
       gist = out.gist ?? "";
     }
-    const said = await ltm.said(writer, answer, this.question, gist || `Asked: ${this.question.slice(0, 120)}`, this.session);
+    const said = await ltm.said(writer, answer, this.question, gist || answer.slice(0, 300), this.session, this.followsUp);
     const kept = [], replaced = [];
     for (const k of keep) {
       const s = fresh[k.ref - 1];
@@ -396,12 +416,13 @@ export class Brain {
         await ltm.remove(k.replaces);
       }
       const m = await ltm.store(writer, s.kind, s.text, {
-        weight: Math.min(0.9, 0.45 + 0.1 * (s.from.length - 1)), session: this.session, from: s.from, embedding: s.embedding });
+        weight: Math.min(0.9, 0.45 + 0.1 * (s.from.length - 1)), session: this.session, from: s.from, embedding: s.embedding,
+        origin: said.id, context: this.question });
       if (m) kept.push({ ...memView(m), from: s.from, reason: k.reason });
     }
     const dropped = fresh.filter((_, i) => !keep.some((k) => k.ref === i + 1)).map((s) => ({ kind: s.kind, text: s.text, from: s.from }));
     const forgotten = (await ltm.forget()).map(memView);
-    this.emit("memory_stored", writer, { said: { gist: said.gist }, kept, reinforced, replaced, dropped, forgotten,
+    this.emit("memory_stored", writer, { said: { id: said.id, question: said.question, gist: said.gist, follows: said.follows }, kept, reinforced, replaced, dropped, forgotten,
                                          total: await ltm.count() });
   }
 
@@ -519,7 +540,9 @@ export function newSessionId(): string {
 
 /** What the trace shows of a memory (no embedding). */
 function memView(m: Memory) {
-  return { id: m.id, kind: m.kind, text: m.verbatim ? m.gist || m.text.slice(0, 300) : m.text, weight: round(m.weight, 3) };
+  return { id: m.id, kind: m.kind, text: m.verbatim ? m.gist || m.text.slice(0, 300) : m.text, weight: round(m.weight, 3),
+           question: m.question || undefined, context: m.context || undefined,
+           follows: m.follows ?? undefined, origin: m.origin ?? undefined };
 }
 
 function round(x: number, digits: number): number {
