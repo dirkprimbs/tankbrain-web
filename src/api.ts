@@ -7,7 +7,6 @@ import { Brain, newSessionId } from "./engine/brain";
 import * as config from "./engine/config";
 import { EventLog } from "./engine/events";
 import { OpenRouterLLM, type CloudModel } from "./engine/llm";
-import { BrowserLLM, isBrowserModel, ModelRouter } from "./engine/browserllm";
 import { LongTermMemory } from "./engine/memory/longterm";
 import { forgetEverything, openStore, type EventRow, type Store } from "./engine/store";
 import { exportSession as exportFile, importDemos, importSession, type SessionFile } from "./engine/sessionfile";
@@ -43,9 +42,7 @@ const state: { brain: Brain | null; session: string | null; task: Promise<unknow
 let cloudModels: { at: number; list: CloudModel[] | null } = { at: 0, list: null };
 // key from this browser's settings, read at the moment of each request
 const openrouter = new OpenRouterLLM(() => settings.openrouterKey);
-/** The opt-in model that runs in this browser (WebGPU). */
-export const browserLLM = new BrowserLLM();
-const llm = new ModelRouter(openrouter, browserLLM);
+const llm = openrouter;
 
 export async function init(): Promise<void> {
   db = await openStore();
@@ -128,14 +125,8 @@ export async function inspire(body: InspireBody): Promise<{ session: string }> {
   if (!body.text.trim()) throw new ApiError(400, "empty inspiration");
   if (!(await config.listProfiles(db)).includes(body.profile)) throw new ApiError(404, "unknown profile");
   const cfg = await config.load(body.profile, db);
-  // a key is needed only if some voice runs on OpenRouter
-  const hosted = [...cfg.agents.values()].filter((a) => !isBrowserModel(a.model)).map((a) => a.name);
-  if (hosted.length && !settings.openrouterKey && body.profile !== "fake") {
-    throw new ApiError(400, `${hosted.join(", ")} ${hosted.length === 1 ? "runs" : "run"} on OpenRouter, but no key is set ` +
-      "in this browser (⚙ Settings), or pick the \"in-browser\" profile");
-  }
-  if (hosted.length < cfg.agents.size && !BrowserLLM.supported()) {
-    throw new ApiError(400, "this profile runs voices in the browser, but this browser has no WebGPU");
+  if (!settings.openrouterKey && body.profile !== "fake") {
+    throw new ApiError(400, "the voices run on OpenRouter, but no key is set in this browser (⚙ Settings)");
   }
   if (!(body.cloud_concurrency >= 1 && body.cloud_concurrency <= 16)) throw new ApiError(400, "cloud concurrency must be 1..16");
   openrouter.embedModel = cfg.embed_model;
@@ -143,7 +134,7 @@ export async function inspire(body: InspireBody): Promise<{ session: string }> {
   let audio = null;
   if (body.speak) {
     let spec = body.speech;
-    // no key: OpenRouter can't speak, so the in-browser voice does
+    // no key: OpenRouter can't speak, so Kokoro in the browser does
     if (spec.engine === "openrouter" && !settings.openrouterKey) spec = { engine: "kokoro", voice: settings.voice, speed: spec.speed, model: "", style: "" };
     audio = speech.channel(checkSpeech(spec));
   }

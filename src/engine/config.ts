@@ -6,7 +6,6 @@ import agentsYaml from "../config/agents.yaml?raw";
 import diverseYaml from "../config/profiles/diverse.yaml?raw";
 import fakeYaml from "../config/profiles/fake.yaml?raw";
 import fastYaml from "../config/profiles/fast.yaml?raw";
-import inBrowserYaml from "../config/profiles/in-browser.yaml?raw";
 import dirksDefaultYaml from "../config/profiles/dirksdefault.yaml?raw";
 import type { Store } from "./store";
 
@@ -15,7 +14,7 @@ export const GRANTS = new Set(["question", "working_memory", "draft"]);
 export const PHASES = new Set(["think", "gate", "speak"]);
 export const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
-const BUILTIN: Record<string, string> = { diverse: diverseYaml, dirksdefault: dirksDefaultYaml, fast: fastYaml, "in-browser": inBrowserYaml, fake: fakeYaml };
+const BUILTIN: Record<string, string> = { diverse: diverseYaml, dirksdefault: dirksDefaultYaml, fast: fastYaml, fake: fakeYaml };
 
 export interface AgentSpec {
   name: string;

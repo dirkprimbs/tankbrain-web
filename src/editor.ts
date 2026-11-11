@@ -4,7 +4,6 @@
 import type { AgentInfo, ConfigInfo } from "./types";
 import * as api from "./api";
 import type { CloudModel } from "./engine/llm";
-import { BROWSER_MODELS, BROWSER_PREFIX } from "./engine/browserllm";
 import { GROUP_LABELS } from "./types";
 
 interface ModelList { cloud: CloudModel[]; cloud_error: string | null }
@@ -214,8 +213,7 @@ export class VoiceEditor {
       o.selected = value === current;
       parent.append(o);
     };
-    const inBrowser = BROWSER_MODELS.map((m) => BROWSER_PREFIX + m.id);
-    if (!models.cloud.some((m) => m.id === current) && !inBrowser.includes(current)) {
+    if (!models.cloud.some((m) => m.id === current)) {
       add(sel, current, `${current}  (${models.cloud.length ? "not offered by OpenRouter right now" : "model list unavailable"})`);
     }
     if (models.cloud.length) {
@@ -227,10 +225,6 @@ export class VoiceEditor {
       }
       sel.append(cloud);
     }
-    const local = h("optgroup");
-    local.label = "in this browser (WebGPU, no key, weaker) · GPU memory";
-    for (const m of BROWSER_MODELS) add(local, BROWSER_PREFIX + m.id, `⌂ ${m.label}  ${m.vramGB} GB`);
-    sel.append(local);
     return sel;
   }
 

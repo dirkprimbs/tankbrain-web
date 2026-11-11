@@ -23,11 +23,11 @@ npm run build        # the site is in dist/
 npm run dev          # or: develop with hot reload (http://localhost:5178)
 ```
 
-It starts on the `dirksdefault` profile. No key? The page asks whether to set one now. You can also replay the five demo sessions, or pick the **in-browser** profile (below).
+It starts on the `dirksdefault` profile. No key? The page offers **Sign in with OpenRouter**: you sign in on openrouter.ai, approve a key for Tankbrain, and come back with it saved in this browser (OpenRouter's [OAuth PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth); no client secret, no server, and the page's own address is the callback, so it works from any host). You can also paste a key in **⚙ Settings**, or just replay the five demo sessions.
 
 `dist/` is plain files with relative paths: put it on any static host (GitHub Pages, Netlify, an S3 bucket, a folder behind nginx) or serve it locally, e.g. `python3 -m http.server -d dist`. Open it, add your OpenRouter key in **⚙ Settings**, and ask something.
 
-The app reads no environment variables and has no backend. The only hosts it talks to are `openrouter.ai` (the voices, embeddings, speech) and `huggingface.co` (one-time model downloads, only if you use the in-browser model or the offline Kokoro voice).
+The app reads no environment variables and has no backend. The only hosts it talks to are `openrouter.ai` (the voices, embeddings, speech) and `huggingface.co` (a one-time download, only if you use the offline Kokoro voice).
 
 ## How it thinks
 
@@ -49,20 +49,20 @@ The app reads no environment variables and has no backend. The only hosts it tal
 
 * **Cycles and attention.** Each cycle, the voices with unread input are ranked by salience (DMs over board posts) and the top `max_turns` get the floor. They think side by side, up to the parallelism set in Settings.
 * **Stopping.** Energy decays every cycle, fresh ideas bump it a little, and the Motivator's interest pulls it up or down. The thinking phase ends when energy falls below the threshold, when nobody has anything left to read ("quiet"), or at the cycle or time cap.
-* **Wrap-up.** The Drafter hears "time is nearly up" and the cycles continue, but now only messages addressed to a voice wake it: board posts no longer do, so the voices that have had their say stay quiet instead of repeating themselves. The Drafter marks the draft *ready* when it considers it finished (or the Inhibitor steps in once nobody has anything left to say). A rejection goes back to the Drafter as a private message, together with the latest critique, so the Drafter weighs both instead of simply obeying the gate; then the cycles continue. It's bounded by `wrap_cycles` and `max_rejections`. Then the Voice speaks and Recall stores what's worth remembering.
-* **Edit-based drafting.** After the first version, the Drafter changes the draft with edits (find a passage, replace it) plus a one-line note on what it changed and why. Each version records its edits, a word-level diff, and everything the Drafter had just read, so the draft panel shows which input caused which change. Edits whose passage can't be found, or whose replacement is abbreviated with "...", are refused and reported back to the Drafter.
+* **Wrap-up.** The Drafter hears "time is nearly up" and the cycles continue, but now only messages addressed to a voice wake it: board posts no longer do, so the voices that have had their say stay quiet instead of repeating themselves. The Drafter marks the draft *ready* when it considers it finished (or the Inhibitor steps in once nobody has anything left to say). A rejection goes back to the Drafter as a private message, together with the latest critique, so the Drafter weighs both instead of simply obeying the gate; then the cycles continue. It's bounded by `wrap_cycles` and `max_rejections`. Then the Voice speaks and Recall stores what's worth remembering. If the Inhibitor's last look at the final draft was a rejection, the Voice says it but makes clear it isn't certain; if no draft was ever written, the brain says it didn't manage an answer instead of letting the Voice improvise.
+* **Edit-based drafting.** After the first version, the Drafter changes the draft with edits (find a passage, replace it) plus a one-line note on what it changed and why. Each version records its edits, a word-level diff, and everything the Drafter had just read, so the draft panel shows which input caused which change. Edits whose passage can't be found, or whose replacement is abbreviated with "...", are refused and reported back to the Drafter, as is a "draft" that is only a placeholder such as "[empty]".
 * **Echo control.** Silence is the default, voices have cooldowns, and near-duplicate posts are dropped.
 * **Information hiding.** Each voice gets a JSON schema built from its own permissions, and its output is clamped to them: it can't post to boards it doesn't own, DM strangers, or write memory it doesn't own.
 
 ## Configure
 
 * `src/config/agents.yaml`: voices, personas, models (OpenRouter ids), boards, contacts, memory grants, abilities, region position/colour, plus cycle and energy settings. Adding a voice needs no code.
-* `src/config/profiles/*.yaml`: model assignments. `diverse` gives each voice a model from a different family (Qwen, Granite, Mistral, Phi, Gemma); `dirksdefault` keeps the best performers from the first runs (Logician on GLM 5.3 Flash with thinking, Storyteller and Inhibitor on Gemma 4 26B), puts the voices that judge others' work on a different family than the work they judge (Critic and Curator on GLM 5.3 Flash), and every other voice on Gemini 3.8 Flash; `fast` puts every voice on `google/gemini-2.5-flash-lite`; `in-browser` runs every voice on a small model in your browser (see below).
+* `src/config/profiles/*.yaml`: model assignments. `diverse` gives each voice a model from a different family (Qwen, Granite, Mistral, Phi, Gemma); `dirksdefault` keeps the best performers from the first runs (Logician on GLM 5.3 Flash with thinking, Storyteller and Inhibitor on Gemma 4 26B), puts the voices that judge others' work on a different family than the work they judge (Critic and Curator on GLM 5.3 Flash), and every other voice on Gemini 3.8 Flash; `fast` puts every voice on `google/gemini-2.5-flash-lite`.
 * **In the UI:** hover a voice on the brain for its card (task, configuration, current state); click it, or use "Configure voices", to open the voice editor: model (every OpenRouter model that supports enforced JSON output, with prices), temperature, thinking, on/off and persona. Saving creates a custom profile in this browser; the built-in profiles can't be overwritten.
 
-## In-browser model (opt-in, no key)
+## No in-browser model
 
-The `in-browser` profile runs every voice on one small model on your own graphics card with [WebLLM](https://github.com/mlc-ai/web-llm) (WebGPU; recent Chrome or Edge). Default: Qwen3.5 2B (about 1.5 GB, downloaded once from Hugging Face and cached). The voice editor offers a few others (Qwen3.5 4B, Qwen3 1.7B, Llama 3.2 3B, Gemma 4 E2B), and you can mix them with hosted voices. It is an imperfect stand-in: roughly 20 tokens a second on a mid-range GPU, so turns are kept short and a session takes several minutes, and small models make reasoning mistakes the hosted ones don't. Without a key, Recall falls back to word matching and the reply is spoken by Kokoro in the browser.
+There used to be an in-browser option (WebLLM, and Chrome's built-in Gemini Nano). It was removed on 2026-11-11: small models (Qwen3.5 2B) couldn't hold their roles, and models over 2 GiB don't fit the storage some browsers give a site.
 
 ## Example prompts and sessions
 

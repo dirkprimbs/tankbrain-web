@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/engine/agent";
 import { Brain } from "../src/engine/brain";
-import { isBrowserModel, ModelRouter } from "../src/engine/browserllm";
 import * as config from "../src/engine/config";
 import { FakeLLM, type LLM } from "../src/engine/llm";
 import { exportSession, importDemos, importSession } from "../src/engine/sessionfile";
@@ -36,32 +35,6 @@ describe("Inventor and Storyteller", () => {
     await new Brain(cfg, llm, log, ltm).run("What is 17 times 3?");
     const drafterSaw = llm.calls.filter((c) => c.system.startsWith("Your name is Drafter.")).some((c) => c.user.includes("Open with a picture"));
     expect(drafterSaw).toBe(true);
-  });
-});
-
-describe("the in-browser model (opt-in)", () => {
-  it("has a profile that puts every voice in the browser", async () => {
-    const { db } = await fresh();
-    const cfg = await config.load("in-browser", db);
-    expect([...cfg.agents.values()].every((a) => isBrowserModel(a.model))).toBe(true);
-    expect([...cfg.agents.values()].every((a) => a.think === false)).toBe(true);
-    expect(await config.listProfiles(db)).toContain("in-browser");
-  });
-
-  it("routes browser: models to the browser engine and the rest to OpenRouter", async () => {
-    const seen: string[] = [];
-    const fake = (name: string): LLM => ({
-      chat: async (model) => {
-        seen.push(`${name}:${model}`);
-        return { data: {}, thinking: "", seconds: 0, loadSeconds: 0, tokens: 0, raw: "", error: null };
-      },
-      embed: async () => (name === "cloud" ? [1] : null),
-    });
-    const r = new ModelRouter(fake("cloud"), fake("browser"));
-    await r.chat("browser:Qwen3.5-2B-q4f32_1-MLC", "s", "u", {});
-    await r.chat("qwen/qwen3.5-9b", "s", "u", {});
-    expect(seen).toEqual(["browser:browser:Qwen3.5-2B-q4f32_1-MLC", "cloud:qwen/qwen3.5-9b"]);
-    expect(await r.embed("x")).toEqual([1]);
   });
 });
 

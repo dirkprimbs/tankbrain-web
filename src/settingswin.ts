@@ -1,6 +1,7 @@
 // Settings window: OpenRouter key, parallelism, speech and the data kept in this browser.
 import { settings } from "./settings";
 import * as api from "./api";
+import { startSignIn } from "./signin";
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text?: string) => {
   const e = document.createElement(tag);
@@ -47,6 +48,12 @@ export class SettingsWindow {
       "is needed. The key is kept only in this browser and is sent only to OpenRouter. Everything a voice " +
       "reads (the question, notes, the draft) goes to OpenRouter and the model's provider."));
     body.append(this.state);
+    const signin = h("button", "primary", "SIGN IN WITH OPENROUTER");
+    signin.addEventListener("click", () => startSignIn());
+    const signRow = h("div", "row");
+    signRow.append(signin);
+    body.append(signRow);
+    body.append(h("p", "settings-note", "Signing in creates a key for Tankbrain in your OpenRouter account and saves it here. Or paste a key:"));
     this.keyInput.type = "password";
     this.keyInput.placeholder = "sk-or-v1-…";
     this.keyInput.autocomplete = "off";

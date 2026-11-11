@@ -13,6 +13,7 @@ import { SettingsWindow } from "./settingswin";
 import { AboutWindow } from "./about";
 import { settings } from "./settings";
 import * as api from "./api";
+import { finishSignIn, startSignIn } from "./signin";
 import { VoicePlayer } from "./player";
 import type { AgentInfo, ConfigInfo, SessionInfo, TankEvent } from "./types";
 
@@ -109,17 +110,6 @@ async function speakSession(session: string) {
 player.resolve = api.audioUrl;
 // the speech model downloads once (~90 MB) and is then cached by the browser
 let modelLine: HTMLElement | null = null;
-let llmLine: HTMLElement | null = null;
-api.browserLLM.onProgress = (f, text) => {
-  if (!llmLine) {
-    llmLine = document.createElement("div");
-    llmLine.className = "sysline";
-    $("stream").appendChild(llmLine);
-  }
-  llmLine.textContent = f < 1 ? `loading the in-browser model (first time is a large download): ${Math.round(f * 100)}% · ${text}`
-    : "in-browser model ready";
-  if (f >= 1) llmLine = null;
-};
 api.synth.onProgress = (f) => {
   if (!modelLine) {
     modelLine = document.createElement("div");
@@ -316,31 +306,26 @@ async function inspire() {
   }
 }
 
-/** No key yet: ask whether to set one now (and open Settings on yes). */
+/** No key yet: offer to sign in with OpenRouter, or to paste a key in Settings. */
 function askForKey() {
   const back = document.createElement("div");
   back.className = "editor-backdrop show";
   const box = document.createElement("div");
   box.className = "editor settings keyask";
-  box.innerHTML = `<div class="editor-head"><h2>OPENROUTER KEY</h2></div><div class="settings-body">
-    <p>The voices think with models hosted on OpenRouter, and there is no key in this browser yet.
-    Do you want to set one now? It stays in this browser and goes only to OpenRouter.</p>
-    <p class="settings-note">Without a key you can still replay sessions, or pick the <b>in-browser</b> profile:
-    a small model that runs on your graphics card (large one-time download, much weaker answers).</p>
-    <div class="row"><button class="primary" data-a="yes">YES, SET IT NOW</button>
-    <button class="ghost" data-a="browser">use the in-browser model</button>
+  box.innerHTML = `<div class="editor-head"><h2>OPENROUTER</h2></div><div class="settings-body">
+    <p>The voices think with models hosted on OpenRouter, paid from your own OpenRouter account.
+    Sign in there and approve a key for Tankbrain: it stays in this browser and goes only to OpenRouter.</p>
+    <p class="settings-note">Have a key already? Paste it in Settings. Without one you can still replay the demo sessions.</p>
+    <div class="row"><button class="primary" data-a="signin">SIGN IN WITH OPENROUTER</button>
+    <button class="ghost" data-a="yes">paste a key</button>
     <button class="ghost" data-a="no">not now</button></div></div>`;
   back.append(box);
   document.body.append(back);
   const close = () => back.remove();
+  box.querySelector('[data-a="signin"]')!.addEventListener("click", () => startSignIn());
   box.querySelector('[data-a="yes"]')!.addEventListener("click", () => {
     close();
     settingsWin.open();
-  });
-  box.querySelector('[data-a="browser"]')!.addEventListener("click", async () => {
-    close();
-    await loadProfile("in-browser");
-    alertLine("Profile \"in-browser\" selected: the first session downloads the model (about 1.5 GB), then it is cached.");
   });
   box.querySelector('[data-a="no"]')!.addEventListener("click", () => {
     close();
@@ -349,9 +334,9 @@ function askForKey() {
   back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
 }
 
-function alertLine(t: string) {
+function alertLine(t: string, kind: "error" | "ok" = "error") {
   const n = document.createElement("div");
-  n.className = "sysline error";
+  n.className = kind === "error" ? "sysline error" : "sysline";
   n.textContent = t;
   $("stream").appendChild(n);
 }
@@ -522,6 +507,14 @@ async function boot() {
   if (cfg.running) setMode("live");
   connect();
   loadSessions();
+  // back from signing in on openrouter.ai?
+  const signedIn = await finishSignIn();
+  if (signedIn && "key" in signedIn) {
+    settings.setKey(signedIn.key, true);
+    alertLine("Signed in with OpenRouter: the key is saved in this browser (remove it any time in ⚙ Settings).", "ok");
+  } else if (signedIn) {
+    alertLine(`⚠ Sign-in with OpenRouter failed: ${signedIn.error}`);
+  }
   if (!settings.openrouterKey) askForKey();
 }
 boot();
