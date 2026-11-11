@@ -14,6 +14,7 @@ import { AboutWindow } from "./about";
 import { settings } from "./settings";
 import * as api from "./api";
 import { finishSignIn, startSignIn } from "./signin";
+import { VERSION, SEEN, changelog, whatsNew, showChangelog } from "./changelog";
 import { VoicePlayer } from "./player";
 import type { AgentInfo, ConfigInfo, SessionInfo, TankEvent } from "./types";
 
@@ -317,7 +318,7 @@ function askForKey() {
   box.className = "editor settings keyask";
   box.innerHTML = `<div class="editor-head"><h2>OPENROUTER</h2></div><div class="settings-body">
     <p>The voices think with models hosted on OpenRouter, paid from your own OpenRouter account.
-    Sign in there and approve a key for Tankbrain: it stays in this browser and goes only to OpenRouter.</p>
+    Sign in there and approve a key for Norbert, the brain: it stays in this browser and goes only to OpenRouter.</p>
     <p class="settings-note">Have a key already? Paste it in Settings. Without one you can still replay the demo sessions.</p>
     <div class="row"><button class="primary" data-a="signin">SIGN IN WITH OPENROUTER</button>
     <button class="ghost" data-a="yes">paste a key</button>
@@ -500,6 +501,20 @@ settingsWin.onForgotten = () => {
 };
 editor.onSaved = (name) => loadProfile(name);
 
+/** The version next to the title; a returning visitor sees what's new since last time. */
+async function announceVersion() {
+  const btn = $("version");
+  btn.textContent = `v${VERSION}`;
+  btn.addEventListener("click", () => showChangelog(changelog(), "CHANGELOG"));
+  const seen = localStorage.getItem(SEEN);
+  const returning = seen !== null
+    || Object.keys(localStorage).some((k) => k.startsWith("tankbrain."))
+    || (await api.sessions()).some((s: SessionInfo) => !s.profile.startsWith("demo"));
+  const news = whatsNew(changelog(), seen, returning);
+  localStorage.setItem(SEEN, VERSION);
+  if (news.length) showChangelog(news, "WHAT'S NEW");
+}
+
 async function boot() {
   await api.init();
   const cfg = await loadProfile("dirksdefault");
@@ -519,5 +534,6 @@ async function boot() {
     alertLine(`⚠ Sign-in with OpenRouter failed: ${signedIn.error}`);
   }
   if (!settings.openrouterKey) askForKey();
+  await announceVersion(); // after the key question, so it opens on top
 }
 boot();

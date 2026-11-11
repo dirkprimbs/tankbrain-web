@@ -50,7 +50,7 @@ export class OpenRouterSpeech {
     if (!key) throw new Error("no OpenRouter key set (Settings)");
     const r = await this.fetchFn(`${OPENROUTER}/audio/speech`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tankbrain" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Norbert, the brain" },
       body: JSON.stringify({ model: spec.model, input: text, voice: spec.voice,
                              instructions: instructions(spec.style, spec.speed), response_format: format, speed: spec.speed }),
       signal: AbortSignal.timeout(120_000),

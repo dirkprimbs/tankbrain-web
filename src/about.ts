@@ -1,7 +1,7 @@
 // "What is this?": a short explanation of the project, opened from the top bar.
 
 const TEXT = `
-<p class="about-lead">Tankbrain answers a question the way a crowd of voices in a head might: small, narrow
+<p class="about-lead">Norbert, the brain, answers a question the way a crowd of voices in a head might: small, narrow
 minds talk it through until one of them says the answer. You watch the whole conversation as it happens.</p>
 
 <h3>What happens</h3>
@@ -21,7 +21,7 @@ answer came about. It is the actual exchange the answer was built from: change a
 conversation, and the answer, change with it.</p>
 
 <h3>Where it comes from</h3>
-<p>Tankbrain revisits the MSc dissertation of <a href="https://primbs.ca/" target="_blank" rel="noopener">Dirk Primbs</a>.
+<p>Norbert, the brain, revisits the MSc dissertation of <a href="https://primbs.ca/" target="_blank" rel="noopener">Dirk Primbs</a>.
 It built a pipeline of
 specialised small models whose explicit trace acts as a functional analogue of human inner speech, and
 found that it made the process far more transparent than direct answers or chain-of-thought. A real

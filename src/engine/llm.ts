@@ -106,7 +106,7 @@ export class OpenRouterLLM implements LLM {
   }
 
   private headers(key = this.key()): Record<string, string> {
-    return { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tankbrain" };
+    return { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Norbert, the brain" };
   }
 
   /** A request that takes longer is given up and retried: answers normally come in 1-25 s,

@@ -53,7 +53,7 @@ export class SettingsWindow {
     const signRow = h("div", "row");
     signRow.append(signin);
     body.append(signRow);
-    body.append(h("p", "settings-note", "Signing in creates a key for Tankbrain in your OpenRouter account and saves it here. Or paste a key:"));
+    body.append(h("p", "settings-note", "Signing in creates a key for Norbert, the brain, in your OpenRouter account and saves it here. Or paste a key:"));
     this.keyInput.type = "password";
     this.keyInput.placeholder = "sk-or-v1-…";
     this.keyInput.autocomplete = "off";

@@ -41,7 +41,7 @@ export async function exportSession(db: Store, id: string): Promise<SessionFile>
 
 /** Add a session file to this browser. Returns false if that session is already here. */
 export async function importSession(db: Store, file: SessionFile, label?: string): Promise<boolean> {
-  if (file?.format !== FORMAT || !file.session?.id || !Array.isArray(file.events)) throw new Error("not a Tankbrain session file");
+  if (file?.format !== FORMAT || !file.session?.id || !Array.isArray(file.events)) throw new Error("not a session file of Norbert, the brain");
   const id = file.session.id;
   if (!/^[a-zA-Z0-9_-]{1,40}$/.test(id)) throw new Error("bad session id in file");
   if (await db.get("sessions", id)) return false;

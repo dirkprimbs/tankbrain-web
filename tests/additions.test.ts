@@ -56,7 +56,7 @@ describe("session files and demos", () => {
     expect(await importSession(b.db, { ...file, session: { ...file.session, id: "old1" },
       memories: [{ session: "old1", created: 1, text: "from an older file", embedding: null }] })).toBe(true);
     expect(await b.ltm.count()).toBe(0);
-    await expect(importSession(b.db, { nope: 1 } as any)).rejects.toThrow("not a Tankbrain session file");
+    await expect(importSession(b.db, { nope: 1 } as any)).rejects.toThrow("not a session file of Norbert, the brain");
   });
 
   it("forgets memories that older versions imported along with a demo", async () => {

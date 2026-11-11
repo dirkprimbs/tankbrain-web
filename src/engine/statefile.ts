@@ -38,7 +38,7 @@ export function isStateFile(x: any): x is StateFile {
 /** Replace everything in this browser with the file's state (in one transaction:
  * a broken file leaves the current state as it was). Returns what came in. */
 export async function importState(db: Store, file: StateFile) {
-  if (!isStateFile(file)) throw new Error("not a Tankbrain state file");
+  if (!isStateFile(file)) throw new Error("not a state file of Norbert, the brain");
   const tx = db.transaction([...STORES], "readwrite");
   await Promise.all(STORES.map((s) => tx.objectStore(s).clear()));
   for (const s of file.sessions) await tx.objectStore("sessions").put(s.status === "running" ? { ...s, status: "interrupted" } : s);

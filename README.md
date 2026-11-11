@@ -1,4 +1,4 @@
-# Tankbrain Web
+# Norbert, the brain
 
 A brain in a tank that thinks in **inner speech**, as a static web page. A question or idea enters through the only open sense, the *inspiration* channel. Small, narrow voices then chatter about it on internal notice boards and in private messages, write things into shared memory, argue over a draft, lose interest, and finally one voice says the answer, out loud.
 
@@ -13,7 +13,7 @@ No voice knows it is part of a brain. Each one only knows its own temperament an
 <td width="50%"><a href="docs/trace.jpg"><img src="docs/trace.jpg" alt="The draft panel with word-level changes between versions, and the stream showing each edit with the writer's note on what changed and why."></a><br><sub><b>The trace.</b> Every draft version with its word-level changes, the writer's note on why, and the conversation that led to it.</sub></td>
 </tr></table>
 
-This is the static version of Tankbrain. There is no server: the brain runs in your browser, every voice is a model on [OpenRouter](https://openrouter.ai), and everything the app keeps stays in your browser.
+This is the static version of Norbert, the brain (it started out as Tankbrain). There is no server: the brain runs in your browser, every voice is a model on [OpenRouter](https://openrouter.ai), and everything the app keeps stays in your browser.
 
 ## Run it
 
@@ -23,7 +23,7 @@ npm run build        # the site is in dist/
 npm run dev          # or: develop with hot reload (http://localhost:5178)
 ```
 
-It starts on the `dirksdefault` profile. No key? The page offers **Sign in with OpenRouter**: you sign in on openrouter.ai, approve a key for Tankbrain, and come back with it saved in this browser (OpenRouter's [OAuth PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth); no client secret, no server, and the page's own address is the callback, so it works from any host). You can also paste a key in **⚙ Settings**, or just replay the five demo sessions.
+It starts on the `dirksdefault` profile. No key? The page offers **Sign in with OpenRouter**: you sign in on openrouter.ai, approve a key for Norbert, the brain, and come back with it saved in this browser (OpenRouter's [OAuth PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth); no client secret, no server, and the page's own address is the callback, so it works from any host). You can also paste a key in **⚙ Settings**, or just replay the five demo sessions.
 
 `dist/` is plain files with relative paths: put it on any static host (GitHub Pages, Netlify, an S3 bucket, a folder behind nginx) or serve it locally, e.g. `python3 -m http.server -d dist`. Open it, add your OpenRouter key in **⚙ Settings**, and ask something.
 

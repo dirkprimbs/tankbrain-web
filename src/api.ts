@@ -1,4 +1,4 @@
-// What used to be the Tankbrain server, now running inside the page: the same
+// What used to be the server of Norbert, the brain, now running inside the page: the same
 // operations with the same answers, backed by this browser's IndexedDB and by
 // OpenRouter. Nothing here talks to any server other than OpenRouter (models)
 // and Hugging Face (the speech model download).
@@ -268,7 +268,7 @@ export async function importState(f: File): Promise<string> {
   } catch {
     throw new ApiError(400, "not a JSON file");
   }
-  if (!isStateFile(file)) throw new ApiError(400, "not a Tankbrain state file (to add a single session, use import… in the session list)");
+  if (!isStateFile(file)) throw new ApiError(400, "not a state file of Norbert, the brain (to add a single session, use import… in the session list)");
   const n = await importStateFile(db, file);
   for (const [k, v] of Object.entries(file.settings ?? {})) if (SETTING.test(k) && k !== SECRET) localStorage.setItem(k, String(v));
   return `restored ${n.sessions} sessions, ${n.memories} memories and ${n.profiles} saved profiles`;

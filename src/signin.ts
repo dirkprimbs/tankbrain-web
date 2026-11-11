@@ -31,7 +31,7 @@ export async function signInUrl(callback = callbackUrl()): Promise<string> {
     code_challenge: await codeChallenge(verifier),
     code_challenge_method: "S256",
     state,
-    key_label: "Tankbrain",
+    key_label: "Norbert, the brain",
   });
   return `${AUTH_URL}?${q}`;
 }

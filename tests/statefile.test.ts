@@ -25,6 +25,6 @@ describe("the whole state as one file", () => {
     expect((await b.db.get("audio", `${res.session}/x.wav`))!.wav.size).toBe(44 + 20);
     const ma = (await a.ltm.all()).map((m) => [m.kind, m.text, m.weight, m.verbatim]);
     expect((await b.ltm.all()).map((m) => [m.kind, m.text, m.weight, m.verbatim])).toEqual(ma);
-    await expect(importState(b.db, { format: "tankbrain-session" } as any)).rejects.toThrow("not a Tankbrain state file");
+    await expect(importState(b.db, { format: "tankbrain-session" } as any)).rejects.toThrow("not a state file of Norbert, the brain");
   });
 });
