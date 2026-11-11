@@ -67,6 +67,57 @@ describe("OpenRouter from the browser", () => {
     expect(await new OpenRouterLLM(() => "", "", fn).chat("m", "s", "u", {})).toMatchObject({ error: "OpenRouter key not configured (Settings)" });
   });
 
+  it("gives a model that reasons anyway room for it, instead of keeping a cut-off answer", async () => {
+    const sent: any[] = [];
+    const { fn } = mock((url, body) => {
+      if (url.endsWith("/models")) return json({ data: [{ id: "g", supported_parameters: ["structured_outputs", "reasoning"] }] });
+      sent.push(body);
+      return body.max_tokens <= 1200
+        ? json({ choices: [{ finish_reason: "length", message: { content: '{"text":"he tapped it once\u2014a measured', reasoning: "pondering" } }] })
+        : json({ choices: [{ finish_reason: "stop", message: { content: '{"text":"he tapped it once, a measured strike."}', reasoning: "pondering" } }] });
+    });
+    const llm = new OpenRouterLLM(() => "k", "", fn);
+    const r = await llm.chat("g", "s", "u", {}, { num_predict: 1200 }, false);
+    expect(r.data).toEqual({ text: "he tapped it once, a measured strike." });
+    expect(sent.map((b) => b.max_tokens)).toEqual([1200, 4200]);
+    expect(sent[1].reasoning).toEqual({ enabled: false });
+    // remembered: the next request has the room from the start
+    await llm.chat("g", "s", "u", {}, { num_predict: 1200 }, false);
+    expect(sent.map((b) => b.max_tokens)).toEqual([1200, 4200, 4200]);
+  });
+
+  it("gives room to a model that refuses to switch reasoning off", async () => {
+    const sent: any[] = [];
+    const { fn } = mock((url, body) => {
+      if (url.endsWith("/models")) return json({ data: [{ id: "g", supported_parameters: ["structured_outputs", "reasoning"] }] });
+      sent.push(body);
+      return body.reasoning ? json({ error: { message: "reasoning is mandatory" } }, 400)
+        : json({ choices: [{ message: { content: '{"ok":true}' } }] });
+    });
+    const r = await new OpenRouterLLM(() => "k", "", fn).chat("g", "s", "u", {}, { num_predict: 1200 }, false);
+    expect(r.data).toEqual({ ok: true });
+    expect(sent.map((b) => b.max_tokens)).toEqual([1200, 4200]);
+  });
+
+  it("stops asking a model that must reason to switch it off, and drops a temperature nobody serves", async () => {
+    const sent: any[] = [];
+    const { fn } = mock((url, body) => {
+      if (url.endsWith("/models")) return json({ data: [{ id: "g", supported_parameters: ["structured_outputs", "reasoning"] }, { id: "o", supported_parameters: ["structured_outputs"] }] });
+      sent.push(body);
+      if (body.reasoning?.enabled === false) return json({ error: { message: "Reasoning is mandatory" } }, 400);
+      if ("temperature" in body && body.model === "o") return json({ error: { message: "No endpoints found that can handle the requested parameters." } }, 404);
+      return json({ choices: [{ message: { content: '{"ok":true}' } }] });
+    });
+    const llm = new OpenRouterLLM(() => "k", "", fn);
+    await llm.chat("g", "s", "u", {}, { num_predict: 500 }, false);
+    await llm.chat("g", "s", "u", {}, { num_predict: 500 }, false);
+    expect(sent.map((b) => [b.model, "reasoning" in b, b.max_tokens])).toEqual([["g", true, 500], ["g", false, 3500], ["g", false, 3500]]);
+    sent.length = 0;
+    expect((await llm.chat("o", "s", "u", {}, { temperature: 0.8 })).data).toEqual({ ok: true });
+    expect((await llm.chat("o", "s", "u", {}, { temperature: 0.8 })).data).toEqual({ ok: true });
+    expect(sent.map((b) => "temperature" in b)).toEqual([true, false, false]);
+  });
+
   it("lists only models that support enforced JSON output", async () => {
     const { fn } = mock(() => json({ data: [
       { id: "a/json", supported_parameters: ["structured_outputs", "reasoning"], pricing: { prompt: "0.0000001", completion: "0.0000004" } },

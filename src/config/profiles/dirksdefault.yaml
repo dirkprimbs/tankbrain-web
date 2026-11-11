@@ -1,17 +1,26 @@
-# Dirk's default: the best finds from the first OpenRouter runs, everything
-# else on Gemini 3.8 Flash (fast, follows narrow instructions well).
-#   kept: Logician on GLM 5.3 Flash with thinking (1-2 s, correct, concise),
-#         Storyteller and Inhibitor on Gemma 4 26B (on brief, sound verdicts).
-# Voices that judge other voices' work run on a different model family from
-# the work they judge (a model goes easy on its own kind):
-#   Critic (reviews the Drafter's Gemini drafts) and Curator (picks among the
-#   Associator's and Inventor's Gemini ideas) on GLM 5.3 Flash; the Inhibitor
-#   (final check) on Gemma.
+# Dirk's default, chosen by testing (2026-11-11): each voice's real prompts were
+# replayed on 16 models and scored blind by two judges from different families,
+# then checked in full sessions. Picked for doing the job well at a speed that
+# doesn't hold up a cycle:
+#   Drafter on Kimi K3.1 Pro (the best stories; now and then a slow turn).
+#   Associator and Inventor on Kimi K3 (fresh, specific ideas in ~3 s).
+#   Listener, Motivator, Critic and Inhibitor on GPT-6.1 Terra (~2 s, sound calls).
+#   Voice on DeepSeek V4.1 Flash (says it as well as any, fastest and cheapest).
+#   Everything else on Gemini 3.8 Flash: Storyteller, Curator, Coordinator,
+#   Recall, and the Logician with thinking.
+# Voices that judge other voices' work run on a different model family from the
+# work they judge (a model goes easy on its own kind): Critic and Inhibitor
+# (GPT) judge the Drafter's Kimi drafts; the Curator (Gemini) picks among the
+# Associator's and Inventor's Kimi ideas; the Logician (Gemini) checks Kimi's maths.
 default:
   model: google/gemini-3.8-flash
 agents:
-  Logician: {model: z-ai/glm-5.3-flash, think: true}
-  Critic: {model: z-ai/glm-5.3-flash}
-  Curator: {model: z-ai/glm-5.3-flash}
-  Storyteller: {model: google/gemma-4-26b-a4b-it}
-  Inhibitor: {model: google/gemma-4-26b-a4b-it}
+  Drafter: {model: moonshotai/kimi-k3.1-pro}
+  Associator: {model: moonshotai/kimi-k3}
+  Inventor: {model: moonshotai/kimi-k3}
+  Listener: {model: openai/gpt-6.1-terra}
+  Motivator: {model: openai/gpt-6.1-terra}
+  Critic: {model: openai/gpt-6.1-terra}
+  Inhibitor: {model: openai/gpt-6.1-terra}
+  Voice: {model: deepseek/deepseek-v4.1-flash}
+  Logician: {think: true}

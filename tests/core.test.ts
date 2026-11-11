@@ -37,6 +37,19 @@ describe("core beliefs: who the brain is", () => {
     expect((await ltm.core()).length).toBe(cfg.self.length);
   });
 
+  it("an existing brain gets a belief added to the starting set later, but not one it has changed", async () => {
+    const { db } = await fresh();
+    const ltm = new LongTermMemory(db, null, "Recall");
+    await ltm.seed([NAME, "I am warm."]);
+    const name = (await ltm.core()).find((m) => m.text === NAME)!;
+    await ltm.changeCore("Recall", name.id, "My name is Bob.");
+    expect(await ltm.seed([NAME, "I am warm.", "I keep stories punchy."])).toBe(1);
+    expect((await ltm.core()).map((m) => m.text)).toEqual(["My name is Bob.", "I am warm.", "I keep stories punchy."]);
+    // a core belief from before starting texts were recorded counts by its text
+    await db.add("memories", { kind: "believe", text: "I like tea.", weight: 1, pinned: true } as any);
+    expect(await ltm.seed(["I like tea."])).toBe(0);
+  });
+
   it("only the voices that speak for the brain, or check what it says, know who it is", async () => {
     const { cfg, log, ltm } = await fresh();
     const llm = new FakeLLM(scripted);

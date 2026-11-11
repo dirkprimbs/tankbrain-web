@@ -3,6 +3,14 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.1.0 · 2026-11-11 · Punchier stories
+
+- Norbert likes to keep a story short and punchy, and to end it on a punchline or a twist.
+- A story no longer has to be told in the first person just because Norbert is telling it.
+- Fixed: drafts could be cut off mid-sentence when a model thought longer than it was allowed to.
+- New models for most voices, chosen by testing each voice's job on 16 models: Kimi K3.1 Pro writes the drafts now, and the voices that often held things up run on faster models.
+- Fixed: wasted requests to models that insist on thinking, and voices failing on models that don't take a temperature.
+
 ## 1.0.0 · 2026-11-11 · Norbert
 
 - The brain has a name now: **Norbert**. A few core beliefs about who Norbert is (the name, a temperament, saying "I don't know" rather than guessing) never fade from memory.

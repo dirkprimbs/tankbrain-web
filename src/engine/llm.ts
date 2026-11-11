@@ -91,6 +91,13 @@ export const REASONING_BUDGET = 3000;
 
 export class OpenRouterLLM implements LLM {
   private reasoningModels: Promise<Set<string>> | null = null;
+  /** Models that reason even when asked not to (e.g. Gemini 3 Flash): their
+   * reasoning counts against max_tokens, so they get the reasoning budget too. */
+  private reasonsAnyway = new Set<string>();
+  /** Models that refuse to have reasoning switched off (400): the setting isn't sent again. */
+  private mustReason = new Set<string>();
+  /** Models that don't take a temperature (e.g. GPT-6, Claude 5.5): no provider would serve the request. */
+  private noTemperature = new Set<string>();
 
   constructor(private key: () => string, public embedModel = "openai/text-embedding-3-small",
               private fetchFn: Fetch = (...a) => fetch(...a), private timeoutMs = 60_000,
@@ -128,16 +135,24 @@ export class OpenRouterLLM implements LLM {
       response_format: { type: "json_schema", json_schema: { name: "response", strict: false, schema } },
       provider: { require_parameters: true },
     };
-    if ("temperature" in options) body.temperature = options.temperature;
+    if ("temperature" in options && !this.noTemperature.has(model)) body.temperature = options.temperature;
     if (options.num_predict) body.max_tokens = Math.trunc(options.num_predict);
     // Thinking on or off is said explicitly, like ollama's think flag: left unsaid, many
     // models reason anyway (slow, costly). Only for models that accept the setting,
     // since providers must honour every parameter we send.
+    let roomForReasoning = false;
+    const makeRoom = () => { // reasoning must not eat the answer's room
+      if (body.max_tokens && !roomForReasoning) body.max_tokens += REASONING_BUDGET;
+      roomForReasoning = true;
+    };
     if (think) {
       body.reasoning = { enabled: true, max_tokens: REASONING_BUDGET };
-      if (body.max_tokens) body.max_tokens += REASONING_BUDGET; // reasoning must not eat the answer's room
+      makeRoom();
+    } else if (this.mustReason.has(model)) {
+      makeRoom();
     } else if (await this.canReason(model)) {
       body.reasoning = { enabled: false };
+      if (this.reasonsAnyway.has(model)) makeRoom();
     }
     const t0 = performance.now();
     let lastErr: string | null = null;
@@ -161,6 +176,16 @@ export class OpenRouterLLM implements LLM {
           // some models must reason: try once more without switching it off
           if (r.status === 400 && body.reasoning?.enabled === false && attempt === 0) {
             delete body.reasoning;
+            this.mustReason.add(model);
+            this.reasonsAnyway.add(model);
+            makeRoom();
+            continue;
+          }
+          // no provider takes the temperature for this model: without it, once more
+          if (r.status === 404 && "temperature" in body) {
+            delete body.temperature;
+            this.noTemperature.add(model);
+            attempt--;
             continue;
           }
           if ([400, 401, 402, 403, 404].includes(r.status)) break; // retrying won't help
@@ -174,6 +199,14 @@ export class OpenRouterLLM implements LLM {
       }
       const msg = payload?.choices?.[0]?.message ?? {};
       const raw: string = msg.content ?? "";
+      // cut off because it reasoned although asked not to: once more, with room for that
+      if (payload?.choices?.[0]?.finish_reason === "length" && msg.reasoning && !roomForReasoning && body.max_tokens) {
+        this.reasonsAnyway.add(model);
+        makeRoom();
+        lastErr = "cut off at the length limit";
+        attempt--; // not a failure of the provider: doesn't use up a retry
+        continue;
+      }
       const data = parseJSON(raw);
       if (data !== null) {
         return result({ data, thinking: msg.reasoning ?? "", seconds: (performance.now() - t0) / 1000,

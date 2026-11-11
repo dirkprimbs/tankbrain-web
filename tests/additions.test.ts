@@ -89,20 +89,21 @@ describe("session files and demos", () => {
 });
 
 describe("dirksdefault profile", () => {
-  it("keeps the best finds and puts everything else on Gemini 3.8 Flash", async () => {
+  it("puts each voice on the model that tested best for it, judges on another family", async () => {
     const { db } = await fresh();
     const cfg = await config.load("dirksdefault", db);
     const m = Object.fromEntries([...cfg.agents.values()].map((a) => [a.name, a.model]));
-    expect(m.Logician).toBe("z-ai/glm-5.3-flash");
+    expect(m.Drafter).toBe("moonshotai/kimi-k3.1-pro");
+    expect(m.Associator).toBe("moonshotai/kimi-k3");
+    expect(m.Inventor).toBe("moonshotai/kimi-k3");
+    for (const n of ["Listener", "Motivator", "Critic", "Inhibitor"]) expect(m[n]).toBe("openai/gpt-6.1-terra");
+    expect(m.Voice).toBe("deepseek/deepseek-v4.1-flash");
+    for (const n of ["Storyteller", "Curator", "Coordinator", "Recall", "Logician"]) expect(m[n]).toBe("google/gemini-3.8-flash");
+    const family = (x: string) => x.split("/")[0];
+    expect(family(m.Critic)).not.toBe(family(m.Drafter));    // judges the Drafter's work
+    expect(family(m.Inhibitor)).not.toBe(family(m.Drafter));
+    expect(family(m.Curator)).not.toBe(family(m.Inventor));  // picks among the ideas
     expect(cfg.agents.get("Logician")!.think).toBe(true);
-    expect(m.Storyteller).toBe("google/gemma-4-26b-a4b-it");
-    expect(m.Inhibitor).toBe("google/gemma-4-26b-a4b-it");
-    expect(m.Critic).toBe("z-ai/glm-5.3-flash");   // judges the Drafter's work: another family
-    expect(m.Curator).toBe("z-ai/glm-5.3-flash");  // picks among Gemini ideas: another family
-    expect(cfg.agents.get("Critic")!.think).toBe(false);
-    const rest = Object.entries(m).filter(([n]) => !["Logician", "Storyteller", "Inhibitor", "Critic", "Curator"].includes(n));
-    expect(rest.length).toBe(8);
-    expect(rest.every(([, model]) => model === "google/gemini-3.8-flash")).toBe(true);
     expect([...cfg.agents.values()].filter((a) => a.name !== "Logician").every((a) => a.think === false)).toBe(true);
     expect(cfg.agents.get("Inventor")!.options.temperature).toBe(0.8); // personalities stay
   });

@@ -44,6 +44,7 @@ export interface MemoryRow {
   origin?: number | null;  // "believe"/"interesting": the exchange it came from
   context?: string;        // ...and what was asked there (kept if that exchange is forgotten)
   pinned?: boolean;        // a core belief: never fades or is forgotten, changes only after reconsidering
+  seeded?: string;         // a core belief's starting text, from the config's self list
   doubts?: Doubt[];        // for a core belief: the times it was questioned
 }
 

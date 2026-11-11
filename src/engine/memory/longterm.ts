@@ -62,6 +62,7 @@ export interface Memory {
   origin: number | null;
   context: string;      // for beliefs and interests: what was asked when it came up
   pinned: boolean;
+  seeded: string;       // for a core belief: the starting text it was given (stays when it changes)
   doubts: Doubt[];
   embedding: number[] | null;
 }
@@ -98,7 +99,8 @@ export function normalise(r: MemoryRow): Memory {
     age: r.age ?? PROTECT_SESSIONS, uses: r.uses ?? 0, created: r.created ?? now(), used: r.used ?? null,
     session: r.session ?? null, from: r.from ?? [], verbatim: !!r.verbatim, question: r.question ?? "",
     gist: r.gist ?? "", follows: r.follows ?? null, origin: r.origin ?? null, context: r.context ?? "",
-    pinned: !!r.pinned, doubts: r.doubts ?? [], embedding: r.embedding ?? null,
+    pinned: !!r.pinned, seeded: r.seeded ?? (r.pinned ? String(r.text ?? "") : ""),
+    doubts: r.doubts ?? [], embedding: r.embedding ?? null,
   };
 }
 
@@ -215,7 +217,7 @@ export class LongTermMemory {
   /** Lay down a memory. Only the owner (Recall) writes long-term memory. */
   async store(who: string, kind: MemoryKind, text: string,
               opts: { weight?: number; session?: string | null; from?: string[]; embedding?: number[] | null;
-                      origin?: number | null; context?: string; pinned?: boolean } = {}): Promise<Memory | null> {
+                      origin?: number | null; context?: string; pinned?: boolean; seeded?: string } = {}): Promise<Memory | null> {
     if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
     text = text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
@@ -223,7 +225,7 @@ export class LongTermMemory {
       kind, text, weight: clamp(opts.weight ?? 0.5), age: 0, uses: 0, created: now(), used: null,
       session: opts.session ?? null, from: opts.from ?? [], verbatim: false, question: "", gist: "",
       follows: null, origin: opts.origin ?? null, context: (opts.context ?? "").slice(0, 300),
-      pinned: !!opts.pinned, doubts: [] as Doubt[],
+      pinned: !!opts.pinned, seeded: opts.seeded ?? "", doubts: [] as Doubt[],
       embedding: opts.embedding !== undefined ? opts.embedding : await this.vector(text),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
@@ -244,7 +246,7 @@ export class LongTermMemory {
     const row = {
       kind: "said" as const, text: reply.trim().slice(0, MAX_VERBATIM), weight: 0.6, age: 0, uses: 0, created: now(),
       used: null, session, from: [], verbatim: true, question: question.slice(0, 300), gist: g,
-      follows, origin: null, context: "", pinned: false, doubts: [] as Doubt[],
+      follows, origin: null, context: "", pinned: false, seeded: "", doubts: [] as Doubt[],
       embedding: await this.vector(`${question}\n${g}`),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
@@ -256,11 +258,19 @@ export class LongTermMemory {
     return (await this.all()).filter((m) => m.pinned).sort((a, b) => a.id - b.id);
   }
 
-  /** A fresh brain (no core beliefs yet) is given its starting ones. */
+  /** A fresh brain is given its starting core beliefs; a brain from before a
+   * belief was added to the starting set gets that one too. A belief the brain
+   * has since changed counts as given (it isn't handed back in its old form). */
   async seed(beliefs: string[]): Promise<number> {
-    if ((await this.core()).length) return 0;
-    for (const b of beliefs) await this.store(this.owner, "believe", b, { weight: 1, pinned: true });
-    return beliefs.length;
+    const given = new Set((await this.core()).map((m) => m.seeded || m.text));
+    let added = 0;
+    for (const b of beliefs) {
+      if (given.has(b)) continue;
+      await this.store(this.owner, "believe", b, { weight: 1, pinned: true, seeded: b });
+      given.add(b);
+      added++;
+    }
+    return added;
   }
 
   /** Record that a core belief was questioned. Returns the belief with all its doubts. */

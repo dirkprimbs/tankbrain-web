@@ -147,7 +147,8 @@ export class Agent {
     const parts: string[] = [];
     if (s.grants.includes("self") && ctx.self?.length) {
       parts.push("## Who is being asked\nThe matter is put to one person, who holds these beliefs about themself. " +
-        "Whatever you write or say as the answer is in their voice, in the first person:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
+        "When the answer speaks about itself, it is this person speaking (I, my); it doesn't have to be about them. " +
+        "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
     }
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
     if (this.state.comesToMind.length) {
