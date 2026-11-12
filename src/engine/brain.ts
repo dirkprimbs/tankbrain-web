@@ -1,14 +1,14 @@
 // The brain in the tank: wires voices, board, memory, attention and drive
 // into one session that runs from an inspiration to a spoken reply.
 
-import { Agent, type Output } from "./agent";
+import { Agent, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Size } from "./agent";
 import { Bus, INPUT_TOPIC, type Message } from "./bus";
 import { owner, publicView, type BrainConfig } from "./config";
 import { Energy } from "./energy";
 import type { EventLog } from "./events";
 import type { LLM } from "./llm";
 import { Draft, isPlaceholder } from "./memory/draft";
-import { DOUBT_SESSIONS, LongTermMemory, REINFORCE, similarity, type Judgement, type Memory } from "./memory/longterm";
+import { DOUBT_SESSIONS, LENGTH_BELIEFS, LongTermMemory, REINFORCE, similarity, type Judgement, type Memory } from "./memory/longterm";
 import { MemoryPermissionError, WorkingMemory } from "./memory/working";
 import { salience, schedule } from "./scheduler";
 
@@ -17,7 +17,15 @@ export const GATE =
   "Check the current draft against the matter at hand, reading it exactly as the listener will hear it. " +
   "Approve if it answers it well. Reject only for a real problem: it misses the question, contains a clear " +
   "error, makes unsupported claims, is badly overconfident, or doesn't read as one coherent answer (parts " +
-  "repeated, missing or out of order). If you reject, say exactly what must change.";
+  "repeated, missing or out of order), or is clearly longer than the reply size calls for. " +
+  "If you reject, say exactly what must change.";
+
+/** How many words a text has. */
+export const wordCount = (t: string) => (t.match(/\S+/g) ?? []).length;
+/** The size a reply of n words turned out to be. */
+export const sizeOf = (n: number): Size => (n <= 35 ? "a sentence" : n <= 90 ? "a few sentences" : n <= 180 ? "a paragraph" : "long");
+const TOO_LONG = 1.5;          // a version this many times its size's words gets a note
+export const LEARN_STEP = 0.15; // how much one piece of feedback strengthens a length belief
 export const SPEAK =
   "Say the answer now, based on the current draft. Speak directly and naturally to whoever raised the matter. " +
   "Don't mention drafts, notes, a team or anyone else. Keep every number, formula, name and fact exactly as written. " +
@@ -132,6 +140,10 @@ export class Brain {
   cycle = 0;
   drafterReady = false;
   interests: number[] = []; // the Motivator's reports, for the Voice's tone
+  size: Size | null = null;  // how long the reply should be, as the Listener judged it
+  private lengthNotes = "";  // for the Listener: the last reply's length and how it went down
+  private lastReply: { question: string; words: number; stopped: { heard: number; of: number } | null } | null = null;
+  private lengthJudged = false;
   suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
   followsUp: number | null = null; // the exchange this question follows up on, if any
   self: string[] = [];             // the core beliefs, for the voices granted "self"
@@ -182,7 +194,11 @@ export class Brain {
   async turn(agent: Agent, cycle: number, instruction = ""): Promise<[number, Output]> {
     if (this.cancelled) throw new Cancelled();
     const inbox = this.bus.unread(agent.name, agent.subs, agent.state.lastSeen);
-    const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction, self: this.self };
+    const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction,
+                  self: this.self, lengthNotes: this.lengthNotes,
+                  size: this.size ? `About ${this.size} (at most about ${SIZE_WORDS[this.size]} words), judged from what ` +
+                    "the person seems to want. Fit the reply to it: keep what answers the question, leave out the rest; " +
+                    "they can always ask for more." : undefined };
     agent.state.lastSeen = this.bus.messages.length;
     agent.state.lastCycle = cycle;
     agent.state.turns++;
@@ -247,6 +263,8 @@ export class Brain {
       this.emit("memory_suggested", agent.name, out.suggestion);
     }
 
+    if (agent.can("size")) await this.sized(agent, out);
+
     if (agent.can("interest") && out.interest !== null && out.interest !== undefined) {
       const level = this.energy.reportInterest(out.interest);
       this.interests.push(out.interest);
@@ -278,6 +296,14 @@ export class Brain {
       this.emit("edit_failed", agent.name, { failed, id: msg.id });
     }
     if (!v) return;
+    // a version far over its size: the writer hears it (the Critic and the gate check it too)
+    const words = wordCount(this.draft.current);
+    if (this.size && words > SIZE_WORDS[this.size] * TOO_LONG) {
+      const text = `Version ${v} has ${words} words; the reply should be ${this.size} (at most about ` +
+        `${SIZE_WORDS[this.size]} words). Cut it down: keep what answers the question and drop the rest.`;
+      const msg = this.bus.add(cycle, "draft", "signal", text, { to: agent.name });
+      this.emit("too_long", agent.name, { version: v, words, size: this.size, limit: SIZE_WORDS[this.size], id: msg.id, text });
+    }
     // what this version is a response to: everything the Drafter read this turn
     const sources = inbox.filter((m) => m.kind !== "input")
       .map((m) => ({ from: m.sender, kind: m.kind, topic: m.topic, text: m.text.slice(0, 400) }));
@@ -307,6 +333,11 @@ export class Brain {
     this.drafterReady = false;
     this.suggestions = new Map();
     this.followsUp = null;
+    this.interests = [];
+    this.size = null;
+    this.lengthNotes = "";
+    this.lastReply = null;
+    this.lengthJudged = false;
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
     const elapsed = () => round((performance.now() - t0) / 1000, 1);
@@ -321,6 +352,7 @@ export class Brain {
       if (this.ltm) {
         await this.ltm.seed(cfg.self); // a fresh brain gets its starting core beliefs
         this.self = (await this.ltm.core()).map((m) => m.text);
+        await this.prepareLength();
         await this.recollect();
       } else this.self = cfg.self;
 
@@ -359,6 +391,57 @@ export class Brain {
     const [, out] = await this.turn(this.agents.get(gate)!, this.cycle, GATE);
     this.emit("verdict", gate, { verdict: out.verdict, reason: out.reason, version: this.draft.version, attempt: attempt + 1 });
     return out;
+  }
+
+  // --- how long to talk -----------------------------------------------------
+  /** What the Listener is told before it judges the size: how long the last
+   * reply was, whether the person stopped it, and what the brain has learned
+   * about how much this person wants. */
+  private async prepareLength(): Promise<void> {
+    const ltm = this.ltm!;
+    const last = (await ltm.all()).find((m) => m.verbatim);
+    const lines: string[] = [];
+    if (last) {
+      const row = last.session ? await this.log.session(last.session) : undefined;
+      const words = wordCount(last.text);
+      this.lastReply = { question: last.question, words, stopped: row?.stopped ?? null };
+      lines.push(`Your previous reply, to "${last.question.slice(0, 160)}", was ${words} words (${sizeOf(words)}).` +
+        (row?.stopped ? ` The person stopped it after hearing ${row.stopped.heard} of its ${row.stopped.of} parts.` : ""));
+    }
+    for (const text of Object.values(LENGTH_BELIEFS)) {
+      const m = await ltm.byText(text);
+      if (m && m.weight >= 0.1) lines.push(`What you have learned: ${m.text} (how sure: ${m.weight.toFixed(2)})`);
+    }
+    this.lengthNotes = lines.join("\n");
+  }
+
+  /** The Listener has judged the size (the first judgement stands) and, once,
+   * how the previous reply's length went down. Being stopped mid-reply counts
+   * as too long whatever the words say. Feedback strengthens one length belief
+   * and weakens the other. */
+  private async sized(agent: Agent, out: Output): Promise<void> {
+    if (out.size && !this.size) {
+      this.size = out.size;
+      this.emit("size", agent.name, { size: out.size, words: SIZE_WORDS[out.size] });
+    }
+    if (this.lengthJudged || !this.lastReply || !this.ltm || (!out.lengthFeedback && !this.lastReply.stopped)) return;
+    this.lengthJudged = true;
+    const stopped = this.lastReply.stopped;
+    const verdict: LengthFeedback = stopped ? "too long" : out.lengthFeedback ?? "no idea";
+    const data: Record<string, any> = { verdict, words: this.lastReply.words, question: this.lastReply.question,
+                                        stopped, said: out.lengthFeedback ?? null };
+    if (verdict === "too long" || verdict === "too short") {
+      const [up, down] = verdict === "too long" ? [LENGTH_BELIEFS.short, LENGTH_BELIEFS.long] : [LENGTH_BELIEFS.long, LENGTH_BELIEFS.short];
+      const ltm = this.ltm;
+      const known = await ltm.byText(up);
+      const m = known ? await ltm.reinforce(known.id, LEARN_STEP)
+        : await ltm.store(ltm.owner, "believe", up, { weight: 0.4, session: this.session, from: [agent.name], context: this.question });
+      const other = await ltm.byText(down);
+      const weakened = other ? await ltm.weaken(other.id, LEARN_STEP) : null;
+      data.learned = m ? { text: m.text, weight: round(m.weight, 3), new: !known } : null;
+      if (weakened) data.weakened = { text: weakened.text, weight: round(weakened.weight, 3) };
+    }
+    this.emit("length_feedback", agent.name, data);
   }
 
   // --- long-term memory ------------------------------------------------------
@@ -581,6 +664,7 @@ export class Brain {
     // a draft the gate looked at and didn't approve is said with a caveat
     let answer = hasDraft ? this.draft.current : NO_ANSWER;
     let delivery = "";
+    let mood: Mood | undefined;
     if (speaker && hasDraft) {
       const gated = !!gate && gatedVersion === this.draft.version;
       const doubted = gated && approvedVersion !== this.draft.version;
@@ -589,9 +673,11 @@ export class Brain {
       const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, `${doubted ? SPEAK_UNSURE : SPEAK} ${went}`);
       answer = out.reply || answer;
       if (out.reply) delivery = out.delivery ?? "";
+      if (out.reply && out.mood) mood = out.mood;
     }
     // the speech (text) output channel, with how it is meant to sound
-    this.emit("output", speaker, { channel: "speech", text: answer, ...(delivery ? { delivery } : {}) });
+    this.emit("output", speaker, { channel: "speech", text: answer, words: wordCount(answer),
+                                   ...(delivery ? { delivery, mood } : {}) });
 
     const speakAloud = async () => {
       if (this.audio && answer) {

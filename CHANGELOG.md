@@ -3,6 +3,13 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.3.0 · 2026-11-13 · Knowing when to stop
+
+- Norbert decides up front how long a reply should be: a sentence, a few sentences, a paragraph or a long answer. A quick question gets a quick answer, and in a conversation it says less, as people do.
+- The voices that check the answer now also ask what can go, and a draft far over its size is sent back to be cut.
+- Norbert learns how much you like to hear. Stop the spoken reply partway, or ask for "shorter" or "tell me more", and it remembers. The stream shows what it learned.
+- The spoken reply's mood is clearer: the voice picks a feeling, an energy and a pace for each reply, and says why it feels that way.
+
 ## 1.2.0 · 2026-11-12 · A voice with feelings
 
 - Norbert's spoken reply has a mood now. The voice that speaks hears how the thinking went (how interested Norbert was, whether the answer passed its own check first time) and says how the reply should sound: delighted, wry, a little unsure… The stream shows it under the spoken reply.

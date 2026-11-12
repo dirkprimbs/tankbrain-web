@@ -244,6 +244,21 @@ export function audioUrl(key: string): Promise<string> {
   });
 }
 
+/** The person stopped the spoken reply partway: a sign it was too long. Counts only
+ * for the latest exchange (the one the brain will hear about next time), once. */
+export async function noteStopped(key: string): Promise<void> {
+  const [session, name] = key.split("/");
+  const m = CHUNK.exec(name ?? "");
+  if (!m || !session) return;
+  const latest = (await log.sessions()).find((s) => !s.profile.startsWith("demo"));
+  if (!latest || latest.id !== session || latest.status !== "done" || latest.stopped) return;
+  const end = (await log.events(session)).find((e) => e.kind === "audio_end");
+  const of = Number(end?.data?.chunks) || (latest.answer ? speechPlan(latest.answer).length : 0);
+  const heard = Number(m[3]) + 1;
+  if (!of || heard >= of) return; // the last part was playing: it was heard to the end
+  await db.put("sessions", { ...latest, stopped: { heard, of } });
+}
+
 /** Delete every session, memory, saved profile and recording kept in this browser. */
 export async function forgetAll(): Promise<void> {
   if (state.task) throw new ApiError(409, "a session is running; stop it first");

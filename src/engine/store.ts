@@ -13,6 +13,7 @@ export interface SessionRow {
   status: string;
   ended: number | null;
   alive?: number; // last sign of life while running (another tab may be running it)
+  stopped?: { heard: number; of: number }; // the person stopped the spoken reply after `heard` of `of` parts
 }
 
 export interface EventRow {

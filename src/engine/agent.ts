@@ -26,6 +26,29 @@ export interface TurnContext {
   inbox: Message[];
   instruction: string;
   self?: string[]; // the brain's core beliefs, for voices granted "self"
+  size?: string;   // how long the reply should be, once the Listener has judged it
+  lengthNotes?: string; // for the Listener: how long the last reply was, how it went down, what it has learned
+}
+
+export const SIZES = ["a sentence", "a few sentences", "a paragraph", "long"] as const;
+export type Size = (typeof SIZES)[number];
+/** About how many words each size allows. */
+export const SIZE_WORDS: Record<Size, number> = { "a sentence": 30, "a few sentences": 80, "a paragraph": 160, long: 400 };
+export const LENGTH_FEEDBACK = ["too long", "too short", "fine", "no idea"] as const;
+export type LengthFeedback = (typeof LENGTH_FEEDBACK)[number];
+const ENERGY = ["low", "medium", "high"] as const;
+const PACE = ["slow", "steady", "brisk"] as const;
+export interface Mood { feeling: string; energy: string; pace: string; timing: string }
+
+/** The Voice's mood as delivery instructions: "Amused, with high energy, at a brisk pace. Pause before the twist." */
+export function moodText(m: Mood): string {
+  const feeling = m.feeling.replace(/[.\s]+$/, "");
+  if (!feeling && !m.timing) return "";
+  const parts = [feeling ? feeling[0].toUpperCase() + feeling.slice(1) : "Natural"];
+  if (m.energy) parts.push(`with ${m.energy} energy`);
+  if (m.pace) parts.push(`at a ${m.pace} pace`);
+  const timing = m.timing.replace(/[.\s]+$/, "");
+  return `${parts.join(", ")}.${timing ? ` ${timing[0].toUpperCase()}${timing.slice(1)}.` : ""}`;
 }
 
 export interface Output {
@@ -42,6 +65,9 @@ export interface Output {
   reason?: string;
   reply?: string;
   delivery?: string;      // the Voice's stage direction for saying the reply aloud
+  mood?: Mood;
+  size?: Size | null;
+  lengthFeedback?: LengthFeedback | null;
   remember?: string[];
   verdictGiven?: boolean; // the model actually said approve or reject (not a default)
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
@@ -123,11 +149,24 @@ export class Agent {
     }
     if (this.can("verdict")) lines.push("- Give a 'verdict' (approve or reject) and a short 'reason'.");
     if (this.can("speak")) {
-      lines.push("- Put exactly what you say in 'reply'.");
-      lines.push("- Put in 'delivery' one short stage direction for saying it aloud, at most 20 words: how you feel " +
-        "about this answer and how that sounds (e.g. delighted, quietly pleased, wry, amused, hesitant), plus any " +
-        "timing that matters, such as a pause before a punchline. Base the feeling on the answer and on how it went. " +
-        "Don't quote the reply.");
+      lines.push("- First decide how you feel about this answer, then put exactly what you say in 'reply'.");
+      lines.push("- Your usual manner is already in your voice; don't describe it. Describe what is particular about " +
+        "this reply: 'feeling' (one or two words, e.g. delighted, amused, proud, relieved, wistful, puzzled, sheepish, " +
+        "earnest, gentle, excited, unsure, mischievous, sombre), 'energy' and 'pace', and in 'timing' anything about " +
+        "timing, such as a pause before a punchline (or leave it empty). Take the feeling from the answer itself " +
+        "(a triumph, an admission, a sad subject, a joke), from the tone of whoever asked (worried, playful, " +
+        "challenging, curious) and from how it went. Different replies should sound different.");
+      lines.push("- In 'thought', say in one sentence how you feel about this answer and why, not how you will word it.");
+    }
+    if (this.can("size")) {
+      lines.push("- Judge in 'size' how long the reply should be: " + SIZES.map((x) => `'${x}'`).join(", ") + ". Go by " +
+        "what the person seems to want, not by how much could be said: a short or casual question gets a short " +
+        "reply; 'explain', 'tell me a story' or 'in detail' ask for more; a follow-up in a conversation usually needs " +
+        "less than a fresh question, because much is already shared. The reply is spoken aloud, and the person can " +
+        "always ask for more. What you have learned about this person counts.");
+      lines.push("- If you are told about your previous reply, judge in 'length_feedback' what the new message " +
+        "suggests about its length: 'too long' (e.g. 'in short', 'shorter', 'tl;dr', impatience), 'too short' " +
+        "('tell me more', 'why?', 'go on', 'more detail'), 'fine', or 'no idea' (a new topic, or no sign either way).");
     }
     if (this.can("recognise")) {
       lines.push("- Sometimes things come to mind, listed under 'Things that come to mind'. Judge each in 'recall' " +
@@ -158,6 +197,8 @@ export class Agent {
         "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
     }
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
+    if (this.can("size") && ctx.lengthNotes) parts.push(`## How your replies go down\n${ctx.lengthNotes}`);
+    if (s.grants.includes("draft") && ctx.size) parts.push(`## Reply size\n${ctx.size}`);
     if (this.state.comesToMind.length) {
       parts.push("## Things that come to mind\n" + this.state.comesToMind.map((p, i) => `[${i + 1}] ${p}`).join("\n"));
     }
@@ -229,9 +270,18 @@ export class Agent {
       required.push("verdict", "reason");
     }
     if (this.can("speak")) {
+      // the feeling first: small models fill fields in order, and it may colour the wording
+      props.feeling = { type: "string" };
+      props.energy = { type: "string", enum: [...ENERGY] };
+      props.pace = { type: "string", enum: [...PACE] };
+      props.timing = { type: "string" };
       props.reply = { type: "string" };
-      props.delivery = { type: "string" };
-      required.push("reply", "delivery");
+      required.push("feeling", "energy", "pace", "timing", "reply");
+    }
+    if (this.can("size")) {
+      props.size = { type: "string", enum: [...SIZES] };
+      props.length_feedback = { type: "string", enum: [...LENGTH_FEEDBACK] };
+      required.push("size", "length_feedback");
     }
     if (this.can("recognise")) {
       props.recall = { type: "array", items: {
@@ -292,7 +342,15 @@ export class Agent {
     }
     if (this.can("speak")) {
       out.reply = unquote(str(data.reply));
-      out.delivery = str(data.delivery).replace(/\s+/g, " ").trim().slice(0, 200);
+      const one = (x: unknown, n: number) => str(x).replace(/\s+/g, " ").trim().slice(0, n);
+      const pick = <T extends readonly string[]>(x: unknown, ok: T) => (ok as readonly string[]).includes(str(x).toLowerCase()) ? str(x).toLowerCase() : "";
+      out.mood = { feeling: one(data.feeling, 40), energy: pick(data.energy, ENERGY), pace: pick(data.pace, PACE), timing: one(data.timing, 120) };
+      out.delivery = moodText(out.mood);
+    }
+    if (this.can("size")) {
+      const sz = str(data.size).toLowerCase(), fb = str(data.length_feedback).toLowerCase();
+      out.size = (SIZES as readonly string[]).includes(sz) ? (sz as Size) : null;
+      out.lengthFeedback = (LENGTH_FEEDBACK as readonly string[]).includes(fb) ? (fb as LengthFeedback) : null;
     }
     const int = (x: unknown) => (typeof x === "number" && Number.isInteger(x) ? x
       : typeof x === "string" && /^\s*\d+\s*$/.test(x) ? Number(x) : null);

@@ -134,7 +134,7 @@ describe("spoken output channel", () => {
       const out = scripted(system, user);
       if (who(system) === "Voice") {
         voicePrompt = user;
-        out.delivery = "Quietly pleased,\n with a small smile.";
+        Object.assign(out, { feeling: "Quietly pleased ", energy: "LOW", pace: "warp speed", timing: "a small smile at the end." });
       }
       return out;
     };
@@ -144,9 +144,12 @@ describe("spoken output channel", () => {
     expect(voicePrompt).toContain("How it went (for your tone of voice only; never mention it): interest along the way (0 to 10): 1");
     expect(voicePrompt).toContain("the final check approved it");
     const output = (await log.events(res.session)).find((e) => e.kind === "output")!;
-    expect(output.data.delivery).toBe("Quietly pleased, with a small smile.");
+    // an unknown pace is dropped, the rest becomes one stage direction
+    const said = "Quietly pleased, with low energy. A small smile at the end.";
+    expect(output.data.delivery).toBe(said);
+    expect(output.data.mood).toEqual({ feeling: "Quietly pleased", energy: "low", pace: "", timing: "a small smile at the end." });
     expect(specs.length).toBeGreaterThan(0);
-    for (const sp of specs) expect(sp.mood).toBe("Quietly pleased, with a small smile.");
+    for (const sp of specs) expect(sp.mood).toBe(said);
     // Kokoro takes no delivery instructions: the mood is left out
     const kspecs: SpeechSpec[] = [];
     const kspy: Engine = { synth: async (_t, spec) => { kspecs.push(spec); return { wav: wavBlob(new Float32Array(240), 24000), seconds: 0.01 }; } };

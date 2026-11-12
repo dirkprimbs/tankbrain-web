@@ -431,6 +431,9 @@ let voiceDismissed = false; // stopped or closed this reply: later chunks of it 
 /** Stop the spoken reply for good: chunks of it still being made or replayed aren't played either. */
 function silence() {
   voiceDismissed = true;
+  // stopping the reply partway tells the brain it went on too long
+  const key = player.currentKey;
+  if (key) api.noteStopped(key).catch(() => {});
   player.stop();
 }
 function closeReply() {

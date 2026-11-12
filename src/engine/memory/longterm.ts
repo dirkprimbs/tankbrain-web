@@ -44,6 +44,15 @@ export const DOUBT_SESSIONS = 2;   // sessions a core belief must have been ques
 
 export type Judgement = keyof typeof JUDGE_DELTA;
 
+/** What the brain learns about how much the person wants to hear. Fixed texts,
+ * so feedback strengthens the same belief; they are given to the Listener
+ * directly and never "come to mind" (judging them unrelated would wear them down). */
+export const LENGTH_BELIEFS = {
+  short: "The person I talk with likes short replies; when I go on too long, they stop me or ask for less.",
+  long: "The person I talk with wants more than I tend to give; they ask for more detail when I keep it short.",
+} as const;
+const LENGTH_TEXTS = new Set<string>(Object.values(LENGTH_BELIEFS));
+
 export interface Memory {
   id: number;
   kind: MemoryKind;
@@ -145,7 +154,7 @@ export class LongTermMemory {
     const last = all.find((m) => m.verbatim) ?? null;
     const q = { text: question, embedding: await this.vector(question) };
     // core beliefs aren't recalled: the voices that speak for the brain always have them
-    const scored = all.filter((m) => !m.verbatim && !m.pinned)
+    const scored = all.filter((m) => !m.verbatim && !m.pinned && !LENGTH_TEXTS.has(m.text))
       .map((m) => [similarity(q, m), m] as const)
       .filter(([s]) => s >= floor)
       .sort((a, b) => b[0] * 0.7 + b[1].weight * 0.3 - (a[0] * 0.7 + a[1].weight * 0.3))
@@ -200,6 +209,22 @@ export class LongTermMemory {
       if (s >= SAME && (!best || s > best[0])) best = [s, m];
     }
     return best ? best[1] : null;
+  }
+
+  /** A memory by its exact text (not the verbatim reply). */
+  async byText(text: string): Promise<Memory | null> {
+    return (await this.all()).find((m) => !m.verbatim && m.text === text) ?? null;
+  }
+
+  /** Make a memory weaker (it is forgotten once it fades below FADED). */
+  async weaken(id: number, by: number): Promise<Memory | null> {
+    const r = await this.db.get("memories", id);
+    if (!r) return null;
+    const m = normalise(r);
+    if (m.pinned) return m;
+    m.weight = clamp(m.weight - by);
+    await this.put(m);
+    return m;
   }
 
   async reinforce(id: number, by = REINFORCE): Promise<Memory | null> {

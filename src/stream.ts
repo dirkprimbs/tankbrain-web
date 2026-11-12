@@ -195,6 +195,20 @@ export class Stream {
       case "ready":
         node = this.item(e, "post", `READY · v${d.version}`, "considers the draft finished", "minor");
         break;
+      case "size":
+        node = this.item(e, "post", "REPLY SIZE", `${d.size} (at most about ${d.words} words)`, "minor");
+        break;
+      case "too_long":
+        node = this.item(e, "system", "TOO LONG", `version ${d.version}: ${d.words} words for ${d.size} (about ${d.limit})`, "minor");
+        break;
+      case "length_feedback": {
+        const why = d.stopped ? `stopped after ${d.stopped.heard} of ${d.stopped.of} parts` : `judged from the new message`;
+        const lines = [`last reply (${d.words} words): ${d.verdict}, ${why}`];
+        if (d.learned) lines.push(`${d.learned.new ? "learns" : "more sure"}: "${d.learned.text}" (${d.learned.weight.toFixed(2)})`);
+        if (d.weakened) lines.push(`less sure: "${d.weakened.text}" (${d.weakened.weight.toFixed(2)})`);
+        node = this.item(e, "post", "HOW MUCH THEY WANT", lines.join("\n"), "memory");
+        break;
+      }
       case "edit_failed":
         node = this.item(e, "system", "EDIT NOT APPLIED", (d.failed as any[]).map((f) => `${f.why ?? "passage not found"}: "${f.find}"`).join("\n"), "minor");
         break;
@@ -231,7 +245,7 @@ export class Stream {
         break;
       case "output":
         node = this.item(e, "post", "◀ SPOKEN REPLY", d.text, "output");
-        if (d.delivery) node.append(el("div", "delivery", `said ${d.delivery.replace(/[.\s]+$/, "")}`));
+        if (d.delivery) node.append(el("div", "delivery", `said: ${d.delivery}`));
         node.title = "click to show the reply window";
         break;
       case "comes_to_mind":

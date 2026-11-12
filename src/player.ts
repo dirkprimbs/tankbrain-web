@@ -29,6 +29,11 @@ export class VoicePlayer {
     return !!this.current;
   }
 
+  /** The chunk being played right now ("<session>/<name>"), if any. */
+  get currentKey(): string | null {
+    return this.current ? this.keys.get(this.current) ?? null : null;
+  }
+
   /** Create/resume the audio context; call from a click so browsers allow sound. */
   unlock() {
     if (!this.ctx) {
