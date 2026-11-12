@@ -26,8 +26,8 @@
 import type { Doubt, MemoryRow, Store } from "../store";
 
 export type Embedder = (text: string) => Promise<number[] | null>;
-export type MemoryKind = "said" | "believe" | "interesting";
-export const KINDS: MemoryKind[] = ["said", "believe", "interesting"];
+export type MemoryKind = "said" | "believe" | "interesting" | "self";
+export const KINDS: MemoryKind[] = ["said", "believe", "interesting", "self"];
 
 export const CAPACITY = 60;        // memories kept at most
 export const DECAY = 0.97;         // every session, every weight fades a little
@@ -41,6 +41,10 @@ export const SAME = 0.9;           // similarity at which two texts count as the
 export const NEIGHBOUR = 0.05;     // what using a memory gives the memories linked to it
 export const THREAD_DEPTH = 2;     // earlier exchanges a follow-up pulls in
 export const DOUBT_SESSIONS = 2;   // sessions a core belief must have been questioned in before it can change
+export const PROMOTE_SESSIONS = 3; // separate sessions a self-discovery must hold up in before it may become core
+export const PROMOTE_WEIGHT = 0.7; // ...and how strong it must be by then
+export const MAX_CORE = 12;        // core beliefs at most (they go into every self-aware prompt)
+export const FOUND_SHOWN = 5;      // self-discoveries given to the voices that speak for the brain
 
 export type Judgement = keyof typeof JUDGE_DELTA;
 
@@ -73,6 +77,9 @@ export interface Memory {
   pinned: boolean;
   seeded: string;       // for a core belief: the starting text it was given (stays when it changes)
   doubts: Doubt[];
+  seen: string[];       // sessions it was laid down or confirmed in
+  considered: number;   // "self": sessions it had when last weighed for becoming core (0: never)
+  promoted: number | null; // a self-discovery that became a core belief: when
   embedding: number[] | null;
 }
 
@@ -109,7 +116,8 @@ export function normalise(r: MemoryRow): Memory {
     session: r.session ?? null, from: r.from ?? [], verbatim: !!r.verbatim, question: r.question ?? "",
     gist: r.gist ?? "", follows: r.follows ?? null, origin: r.origin ?? null, context: r.context ?? "",
     pinned: !!r.pinned, seeded: r.seeded ?? (r.pinned ? String(r.text ?? "") : ""),
-    doubts: r.doubts ?? [], embedding: r.embedding ?? null,
+    doubts: r.doubts ?? [], seen: r.seen ?? (r.session ? [r.session] : []), considered: r.considered ?? 0,
+    promoted: r.promoted ?? null, embedding: r.embedding ?? null,
   };
 }
 
@@ -154,7 +162,8 @@ export class LongTermMemory {
     const last = all.find((m) => m.verbatim) ?? null;
     const q = { text: question, embedding: await this.vector(question) };
     // core beliefs aren't recalled: the voices that speak for the brain always have them
-    const scored = all.filter((m) => !m.verbatim && !m.pinned && !LENGTH_TEXTS.has(m.text))
+    // self-discoveries don't come to mind either: they are given to the voices that speak for the brain
+    const scored = all.filter((m) => !m.verbatim && !m.pinned && m.kind !== "self" && !LENGTH_TEXTS.has(m.text))
       .map((m) => [similarity(q, m), m] as const)
       .filter(([s]) => s >= floor)
       .sort((a, b) => b[0] * 0.7 + b[1].weight * 0.3 - (a[0] * 0.7 + a[1].weight * 0.3))
@@ -227,6 +236,47 @@ export class LongTermMemory {
     return m;
   }
 
+  /** A memory turned up again in this session: stronger, and one more session it held up in. */
+  async confirm(id: number, session: string | null, by = REINFORCE): Promise<Memory | null> {
+    const m = await this.reinforce(id, by);
+    if (!m || !session || m.seen.includes(session)) return m;
+    const seen = { ...m, seen: [...m.seen, session].slice(-20) };
+    await this.put(seen);
+    return seen;
+  }
+
+  /** What the brain has found out about itself, strongest first (not yet core). */
+  async discoveries(k = FOUND_SHOWN, floor = 0.3): Promise<Memory[]> {
+    return (await this.all()).filter((m) => m.kind === "self" && !m.pinned && m.weight >= floor)
+      .sort((a, b) => b.weight - a.weight).slice(0, k);
+  }
+
+  /** Self-discoveries ready to be weighed for becoming a core belief: held up in
+   * enough sessions, strong enough, and not already weighed at this many sessions. */
+  async promotable(): Promise<Memory[]> {
+    if ((await this.core()).length >= MAX_CORE) return [];
+    return (await this.all()).filter((m) => m.kind === "self" && !m.pinned && m.seen.length >= PROMOTE_SESSIONS
+      && m.weight >= PROMOTE_WEIGHT && m.seen.length > m.considered).sort((a, b) => b.weight - a.weight);
+  }
+
+  /** It was weighed for becoming core at its current number of sessions (asked again only after another). */
+  async considered(id: number): Promise<void> {
+    const r = await this.db.get("memories", id);
+    if (!r) return;
+    const m = normalise(r);
+    await this.put({ ...m, considered: m.seen.length });
+  }
+
+  /** A self-discovery becomes a core belief: pinned, never fading. */
+  async promote(who: string, id: number): Promise<Memory | null> {
+    if (who !== this.owner) throw new Error(`${who} may not write long-term memory (owner: ${this.owner})`);
+    const r = await this.db.get("memories", id);
+    if (!r) return null;
+    const m = { ...normalise(r), pinned: true, weight: 1, seeded: "", doubts: [], promoted: now(), considered: 0 };
+    await this.put(m);
+    return m;
+  }
+
   async reinforce(id: number, by = REINFORCE): Promise<Memory | null> {
     const r = await this.db.get("memories", id);
     if (!r) return null;
@@ -251,6 +301,7 @@ export class LongTermMemory {
       session: opts.session ?? null, from: opts.from ?? [], verbatim: false, question: "", gist: "",
       follows: null, origin: opts.origin ?? null, context: (opts.context ?? "").slice(0, 300),
       pinned: !!opts.pinned, seeded: opts.seeded ?? "", doubts: [] as Doubt[],
+      seen: opts.session ? [opts.session] : [], considered: 0, promoted: null,
       embedding: opts.embedding !== undefined ? opts.embedding : await this.vector(text),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;
@@ -272,6 +323,7 @@ export class LongTermMemory {
       kind: "said" as const, text: reply.trim().slice(0, MAX_VERBATIM), weight: 0.6, age: 0, uses: 0, created: now(),
       used: null, session, from: [], verbatim: true, question: question.slice(0, 300), gist: g,
       follows, origin: null, context: "", pinned: false, seeded: "", doubts: [] as Doubt[],
+      seen: session ? [session] : [], considered: 0, promoted: null,
       embedding: await this.vector(`${question}\n${g}`),
     };
     const id = (await this.db.add("memories", row as MemoryRow)) as number;

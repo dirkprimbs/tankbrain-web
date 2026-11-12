@@ -1,7 +1,7 @@
 // The brain in the tank: wires voices, board, memory, attention and drive
 // into one session that runs from an inspiration to a spoken reply.
 
-import { Agent, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Size } from "./agent";
+import { Agent, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Size, type SuggestKind } from "./agent";
 import { Bus, INPUT_TOPIC, type Message } from "./bus";
 import { owner, publicView, type BrainConfig } from "./config";
 import { Energy } from "./energy";
@@ -16,7 +16,7 @@ export const WRAP_SIGNAL = "Time is nearly up. Only say what helps finish the an
 export const GATE =
   "Check the current draft against the matter at hand, reading it exactly as the listener will hear it. " +
   "Approve if it answers it well. Reject only for a real problem: it misses the question, contains a clear " +
-  "error, makes unsupported claims, is badly overconfident, or doesn't read as one coherent answer (parts " +
+  "error, makes unsupported claims (including assumptions about what the speaker is, where or what for), is badly overconfident, or doesn't read as one coherent answer (parts " +
   "repeated, missing or out of order), or is clearly longer than the reply size calls for. " +
   "If you reject, say exactly what must change.";
 
@@ -51,9 +51,21 @@ export const NO_ANSWER = "Sorry, I didn't manage to work out an answer this time
 export const MAX_KEEP = 3; // suggestions kept per session (plus the reply itself)
 const MERGE = 0.88;        // suggestions this similar count as one, with several votes
 
-type Suggestion = { kind: "believe" | "interesting"; text: string; from: string[]; embedding: number[] | null };
+type Suggestion = { kind: SuggestKind; text: string; from: string[]; embedding: number[] | null };
 
-const KIND_LABEL = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
+const KIND_LABEL = { said: "something I said", believe: "something I believe", interesting: "something I find interesting",
+                     self: "something I found out about myself" };
+
+/** The careful voice weighs whether a self-discovery becomes part of who the brain is. */
+export const PROMOTE = (found: Memory, core: string[]) =>
+  "Something you found out about yourself may become a core belief: part of who you are, never fading.\n\n" +
+  `Found out: "${found.text}"\n` + (found.context ? `First when you were asked: "${found.context.slice(0, 200)}"\n` : "") +
+  `It has held up in ${found.seen.length} separate conversations.\n\nYour core beliefs now:\n` +
+  core.map((b) => `- ${b}`).join("\n") + "\n\n" +
+  "A core belief is about who you are, holds up across conversations and fits the rest. Consider: does it rest on " +
+  "something you really found out, not an assumption? Could it come from a joke, a test, a role-play or a mistake? " +
+  "Is it about you, not just about one conversation? Does it repeat or contradict a core belief? Give 'approve' only " +
+  "if it clearly belongs among your core beliefs; otherwise 'reject'. Put your reasoning in 'reason'.";
 
 /** How a memory appears to the Listener when it comes to mind. A "said"
  * memory is an exchange: what was asked, and what was replied. */
@@ -80,9 +92,9 @@ export const RECONSIDER = (belief: string, proposed: string, question: string, a
   "a role-play or a mistake? Does it fit everything else you hold true about yourself? What would be lost by " +
   "changing? Give 'approve' only if changing is clearly right; otherwise 'reject'. Put your reasoning in 'reason'.";
 
-export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[], existing: Memory[]) =>
+export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[], existing: Memory[], went = "") =>
   "The matter has been settled.\n\nThe matter was: " + question.slice(0, 400) + "\n\nThe reply that was given:\n" +
-  answer.slice(0, 1500) + "\n\n" +
+  answer.slice(0, 1500) + "\n\n" + (went ? went.replace(/ \(for your tone of voice only; never mention it\)/, "") + "\n\n" : "") +
   (sugg.length
     ? "Suggestions for long-term memory (number, kind, who suggested it):\n" +
       sugg.map((x, i) => `[${i + 1}] (${x.kind}; ${x.from.join(", ")}) ${x.text}`).join("\n")
@@ -92,6 +104,8 @@ export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[]
     : "") +
   "A suggestion that contradicts a core belief can only be kept as replacing it (in 'replaces'), never next to it; " +
   "replacing a core belief is reconsidered carefully before anything changes. " +
+  "Keep 'self' suggestions (something found out about yourself) only if they rest on what was actually said or " +
+  "shown here, never on an assumption about what you are. " +
   `Keep at most ${MAX_KEEP} suggestions in 'keep', by number, each with a short reason; keep none if none is worth it. ` +
   "If a kept suggestion corrects an existing memory, give that memory's number (without #) in 'replaces'. " +
   "Write in 'gist' what was asked and what was replied, in one short sentence.";
@@ -144,7 +158,9 @@ export class Brain {
   private lengthNotes = "";  // for the Listener: the last reply's length and how it went down
   private lastReply: { question: string; words: number; stopped: { heard: number; of: number } | null } | null = null;
   private lengthJudged = false;
-  suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
+  suggestions = new Map<string, { kind: SuggestKind; text: string }>();
+  private found: string[] = []; // self-discoveries, for the voices that speak for the brain
+  private went = "";           // how the thinking went (for the Voice, and for Recall)
   followsUp: number | null = null; // the exchange this question follows up on, if any
   self: string[] = [];             // the core beliefs, for the voices granted "self"
   private loadedModel: string | null = null;
@@ -195,7 +211,7 @@ export class Brain {
     if (this.cancelled) throw new Cancelled();
     const inbox = this.bus.unread(agent.name, agent.subs, agent.state.lastSeen);
     const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction,
-                  self: this.self, lengthNotes: this.lengthNotes,
+                  self: this.self, lengthNotes: this.lengthNotes, found: this.found,
                   size: this.size ? `About ${this.size} (at most about ${SIZE_WORDS[this.size]} words), judged from what ` +
                     "the person seems to want. Fit the reply to it: keep what answers the question, leave out the rest; " +
                     "they can always ask for more." : undefined };
@@ -338,6 +354,8 @@ export class Brain {
     this.lengthNotes = "";
     this.lastReply = null;
     this.lengthJudged = false;
+    this.found = [];
+    this.went = "";
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
     const elapsed = () => round((performance.now() - t0) / 1000, 1);
@@ -352,6 +370,7 @@ export class Brain {
       if (this.ltm) {
         await this.ltm.seed(cfg.self); // a fresh brain gets its starting core beliefs
         this.self = (await this.ltm.core()).map((m) => m.text);
+        this.found = (await this.ltm.discoveries()).map((m) => m.text);
         await this.prepareLength();
         await this.recollect();
       } else this.self = cfg.self;
@@ -510,7 +529,7 @@ export class Brain {
     for (const s of merged) {
       const known = await ltm.findSame(s.text, s.embedding);
       if (known) {
-        const m = await ltm.reinforce(known.id, REINFORCE * s.from.length);
+        const m = await ltm.confirm(known.id, this.session, REINFORCE * s.from.length);
         reinforced.push({ ...memView(m ?? known), from: s.from });
       } else fresh.push(s);
     }
@@ -521,11 +540,12 @@ export class Brain {
       .sort((a, b) => b[0] - a[0]).slice(0, 5).filter(([s]) => s > 0.15).map(([, m]) => m)];
 
     let keep: { ref: number; reason: string; replaces: number | null }[] = [];
-    let gist = "";
+    let gist = "", noticed = "";
     if (recall) {
-      const [, out] = await this.turn(this.agents.get(recall)!, this.cycle, CONSOLIDATE(this.question, answer, fresh, near));
+      const [, out] = await this.turn(this.agents.get(recall)!, this.cycle, CONSOLIDATE(this.question, answer, fresh, near, this.went));
       keep = (out.keep ?? []).filter((k) => k.ref >= 1 && k.ref <= fresh.length).slice(0, MAX_KEEP);
       gist = out.gist ?? "";
+      noticed = out.noticed ?? "";
     }
     const said = await ltm.said(writer, answer, this.question, gist || answer.slice(0, 300), this.session, this.followsUp);
     const kept = [], replaced = [], reconsidered = [];
@@ -546,8 +566,22 @@ export class Brain {
         origin: said.id, context: this.question });
       if (m) kept.push({ ...memView(m), from: s.from, reason: k.reason });
     }
+    // what Recall noticed about the brain itself from how the thinking went
+    if (noticed && !isPlaceholder(noticed)) {
+      const embedding = await ltm.vector(noticed);
+      const known = await ltm.findSame(noticed, embedding);
+      if (known) {
+        const m = await ltm.confirm(known.id, this.session);
+        reinforced.push({ ...memView(m ?? known), from: [writer] });
+      } else {
+        const m = await ltm.store(writer, "self", noticed, { weight: 0.45, session: this.session, from: [writer],
+                                                            embedding, origin: said.id, context: this.question });
+        if (m) kept.push({ ...memView(m), from: [writer], reason: "noticed from how the thinking went" });
+      }
+    }
     const dropped = fresh.filter((_, i) => !keep.some((k) => k.ref === i + 1)).map((s) => ({ kind: s.kind, text: s.text, from: s.from }));
     const forgotten = (await ltm.forget()).map(memView);
+    await this.promote(writer);
     this.emit("memory_stored", writer, { said: { id: said.id, question: said.question, gist: said.gist, follows: said.follows }, kept, reconsidered, reinforced, replaced, dropped, forgotten,
                                          total: await ltm.count() });
   }
@@ -574,6 +608,23 @@ export class Brain {
                 sessions, needed: DOUBT_SESSIONS, changed };
     this.emit("reconsidered", gate ?? writer, r);
     return r;
+  }
+
+  /** A self-discovery that has held up in enough sessions is weighed by the
+   * careful voice (the gate); if convinced, it becomes a core belief. One per
+   * session; a rejected one is weighed again only after another session. */
+  private async promote(writer: string): Promise<void> {
+    const ltm = this.ltm!;
+    const gate = owner(this.cfg, "verdict");
+    const [found] = await ltm.promotable();
+    if (!found || !gate) return;
+    const core = (await ltm.core()).map((m) => m.text);
+    const [, out] = await this.turn(this.agents.get(gate)!, this.cycle, PROMOTE(found, core));
+    const convinced = !!out.verdictGiven && out.verdict === "approve";
+    if (convinced) await ltm.promote(writer, found.id);
+    else await ltm.considered(found.id);
+    this.emit("promotion", gate, { id: found.id, text: found.text, sessions: found.seen.length, weight: round(found.weight, 3),
+                                   context: found.context, promoted: convinced, reason: out.reason || "" });
   }
 
   private async think(t0: number): Promise<string> {
@@ -668,9 +719,9 @@ export class Brain {
     if (speaker && hasDraft) {
       const gated = !!gate && gatedVersion === this.draft.version;
       const doubted = gated && approvedVersion !== this.draft.version;
-      const went = howItWent({ interests: this.interests, rejections, approved: gated ? !doubted : null,
-                               versions: this.draft.version, cycles: this.cycle });
-      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, `${doubted ? SPEAK_UNSURE : SPEAK} ${went}`);
+      this.went = howItWent({ interests: this.interests, rejections, approved: gated ? !doubted : null,
+                              versions: this.draft.version, cycles: this.cycle });
+      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, `${doubted ? SPEAK_UNSURE : SPEAK} ${this.went}`);
       answer = out.reply || answer;
       if (out.reply) delivery = out.delivery ?? "";
       if (out.reply && out.mood) mood = out.mood;

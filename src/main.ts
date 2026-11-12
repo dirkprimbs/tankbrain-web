@@ -11,6 +11,7 @@ import { VoiceEditor } from "./editor";
 import { VoiceCard } from "./voicecard";
 import { SettingsWindow } from "./settingswin";
 import { AboutWindow } from "./about";
+import { MemoryWindow } from "./memorywin";
 import { settings } from "./settings";
 import * as api from "./api";
 import { finishSignIn, startSignIn } from "./signin";
@@ -234,6 +235,7 @@ function handle(e: TankEvent) {
       break;
     case "memory_stored":
       $("mem-count").textContent = String(d.total);
+      if (memoryWin.isOpen) memoryWin.refresh();
       break;
     case "memory":
       ui.notebook.innerHTML = "";
@@ -498,6 +500,10 @@ async function loadProfile(name: string) {
 $("configure").addEventListener("click", () => editor.open(ui.profile.value));
 const settingsWin = new SettingsWindow();
 const about = new AboutWindow();
+const memoryWin = new MemoryWindow();
+$("memory").addEventListener("click", () => memoryWin.open());
+$("mem-open").addEventListener("click", () => memoryWin.open());
+settingsWin.onMemory = () => memoryWin.open();
 $("about").addEventListener("click", () => about.open());
 $("settings").addEventListener("click", () => settingsWin.open());
 settingsWin.onPreview = () => player.stop();

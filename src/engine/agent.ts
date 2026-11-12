@@ -28,7 +28,10 @@ export interface TurnContext {
   self?: string[]; // the brain's core beliefs, for voices granted "self"
   size?: string;   // how long the reply should be, once the Listener has judged it
   lengthNotes?: string; // for the Listener: how long the last reply was, how it went down, what it has learned
+  found?: string[]; // what the brain has found out about itself (not yet core), for voices granted "self"
 }
+
+export type SuggestKind = "believe" | "interesting" | "self";
 
 export const SIZES = ["a sentence", "a few sentences", "a paragraph", "long"] as const;
 export type Size = (typeof SIZES)[number];
@@ -71,7 +74,8 @@ export interface Output {
   remember?: string[];
   verdictGiven?: boolean; // the model actually said approve or reject (not a default)
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
-  suggestion?: { kind: "believe" | "interesting"; text: string } | null;
+  suggestion?: { kind: SuggestKind; text: string } | null;
+  noticed?: string; // Recall: something the brain noticed about itself from how the thinking went
   keep?: { ref: number; reason: string; replaces: number | null }[];
   gist?: string;
 }
@@ -79,6 +83,8 @@ export interface Output {
 /** Voices that think along may suggest one thing to remember; the gate, the
  * speaker and memory itself don't. */
 const SUGGESTS = (a: AgentSpec) => a.phase === "think" && !a.abilities.some((x) => ["verdict", "speak", "remember"].includes(x));
+/** Only the voices that speak for the brain (they know who is being asked) may suggest self-knowledge. */
+const KNOWS_SELF = (a: AgentSpec) => a.grants.includes("self");
 
 // like Python's str(x or ""): missing, empty, false and 0 all become ""
 const str = (x: unknown) => (x ? String(x) : "");
@@ -178,12 +184,18 @@ export class Agent {
     if (SUGGESTS(this.spec)) {
       lines.push("- If you come across something worth remembering beyond this matter, you may put it in " +
         "'suggest_memory' (at most one, one short sentence): kind 'believe' (something you now hold true) or " +
-        "'interesting' (something you find interesting, and why). Usually leave it out.");
+        "'interesting' (something you find interesting, and why)" + (KNOWS_SELF(this.spec)
+          ? ", or 'self' (something the one being asked has really found out about themself in this conversation: " +
+            "told by someone, shown by how they work, or worked out; written in the first person and saying how it " +
+            "is known, e.g. 'I was told I run in a web browser'; never an assumption)" : "") +
+        ". Usually leave it out.");
     }
     if (this.can("remember")) {
       lines.push("- When asked, decide what is kept in long-term memory: pick in 'keep' the few suggestions " +
         "worth keeping (by number, with a short reason; 'replaces' names an existing memory it corrects), " +
-        "and write in 'gist' the reply that was given, in one short sentence.");
+        "and write in 'gist' the reply that was given, in one short sentence. If how the thinking went clearly " +
+        "shows something about you (what held your interest, what you found hard), you may put it in 'noticed' " +
+        "as one short first-person sentence that says how you know; usually leave it empty.");
     }
     return lines.join("\n");
   }
@@ -194,7 +206,12 @@ export class Agent {
     if (s.grants.includes("self") && ctx.self?.length) {
       parts.push("## Who is being asked\nThe matter is put to one person, who holds these beliefs about themself. " +
         "When the answer speaks about itself, it is this person speaking (I, my); it doesn't have to be about them. " +
-        "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
+        "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n") +
+        (ctx.found?.length ? "\nWhat they have found out about themself so far (likely, not certain):\n" +
+          ctx.found.map((b) => `- ${b}`).join("\n") : "") +
+        "\nBeyond this they know nothing about what they are, where they are or what they are for. When the answer " +
+        "touches on that, it says so or wonders aloud; it never fills the gap with assumptions (such as being an " +
+        "assistant made to help).");
     }
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
     if (this.can("size") && ctx.lengthNotes) parts.push(`## How your replies go down\n${ctx.lengthNotes}`);
@@ -292,13 +309,15 @@ export class Agent {
     if (SUGGESTS(this.spec)) {
       // optional: most turns have nothing worth remembering
       props.suggest_memory = { type: "object", properties: {
-        kind: { type: "string", enum: ["believe", "interesting"] }, text: { type: "string" } }, required: ["kind", "text"] };
+        kind: { type: "string", enum: KNOWS_SELF(s) ? ["believe", "interesting", "self"] : ["believe", "interesting"] },
+        text: { type: "string" } }, required: ["kind", "text"] };
     }
     if (this.can("remember")) {
       props.keep = { type: "array", items: {
         type: "object", properties: { ref: { type: "integer" }, reason: { type: "string" }, replaces: { type: "integer" } },
         required: ["ref", "reason"] } };
       props.gist = { type: "string" };
+      props.noticed = { type: "string" }; // optional: usually nothing
       required.push("keep", "gist");
     }
     return { type: "object", properties: props, required };
@@ -367,7 +386,8 @@ export class Agent {
       const m = data.suggest_memory;
       const kind = isObj(m) ? str(m.kind).toLowerCase() : "";
       const text = isObj(m) ? str(m.text).trim() : "";
-      out.suggestion = (kind === "believe" || kind === "interesting") && text ? { kind, text: text.slice(0, 300) } : null;
+      const ok = kind === "believe" || kind === "interesting" || (kind === "self" && KNOWS_SELF(s));
+      out.suggestion = ok && text ? { kind: kind as SuggestKind, text: text.slice(0, 300) } : null;
     }
     if (this.can("remember")) {
       out.keep = [];
@@ -379,6 +399,7 @@ export class Agent {
         }
       }
       out.gist = str(data.gist).trim().slice(0, 300);
+      out.noticed = str(data.noticed).replace(/\s+/g, " ").trim().slice(0, 300);
     }
     return out;
   }

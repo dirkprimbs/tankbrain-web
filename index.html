@@ -31,7 +31,8 @@ When it drops below the marker, thinking stops and the wrap-up begins."><label>E
       </div>
       <button id="reply-show" class="mute-btn reply-btn" title="No reply yet" disabled>💬</button>
       <button id="mute" class="mute-btn" title="Spoken replies: on (click to mute)">🔊</button>
-      <button id="about" class="settings-btn" title="What this project is and where it comes from">? WHAT IS THIS</button>
+      <button id="about" class="settings-btn" title="What this project is and where it comes from">?<span class="lbl"> WHAT IS THIS</span></button>
+      <button id="memory" class="settings-btn" title="Long-term memory: who Norbert is, what it has found out about itself, what it remembers">◉<span class="lbl"> MEMORY</span></button>
       <button id="settings" class="settings-btn" title="Settings: OpenRouter key, parallelism, speech and stored data (all kept in this browser)">⚙ SETTINGS</button>
     </header>
 
@@ -55,7 +56,7 @@ When it drops below the marker, thinking stops and the wrap-up begins."><label>E
         <button id="configure" class="configure">⚙ CONFIGURE VOICES</button>
       </section>
       <section class="card sessions-card">
-        <h2>SESSIONS <small>· <b id="mem-count">0</b> memories</small></h2>
+        <h2>SESSIONS <small>· <button id="mem-open" class="link-btn" title="open the long-term memory"><b id="mem-count">0</b> memories</button></small></h2>
         <div class="row tight">
           <label class="small">replay speed</label>
           <select id="speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="10">10×</option><option value="instant">instant</option></select>

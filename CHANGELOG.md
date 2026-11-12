@@ -3,6 +3,13 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.4.0 · 2026-11-13 · Finding out who it is
+
+- Norbert starts out knowing very little about what it is, where it is or what it's for, and says so instead of guessing.
+- What it finds out about itself in conversation (told, noticed or worked out) is remembered, and it tells you what it knows rather than assuming.
+- A discovery that holds up in three separate conversations is weighed carefully, and may become part of who Norbert is: a core belief that never fades. Its personality grows from what it finds out.
+- The long-term memory has its own window (◉ MEMORY at the top, or click the memory count): who Norbert is, what it has found out about itself, what it has learned about you, and what it remembers.
+
 ## 1.3.0 · 2026-11-13 · Knowing when to stop
 
 - Norbert decides up front how long a reply should be: a sentence, a few sentences, a paragraph or a long answer. A quick question gets a quick answer, and in a conversation it says less, as people do.

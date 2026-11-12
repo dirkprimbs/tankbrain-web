@@ -20,6 +20,7 @@ export class SettingsWindow {
   onChanged: () => void = () => {};
   onPreview: () => void = () => {};
   onForgotten: () => void = () => {};
+  onMemory: () => void = () => {};
   private speak = h("input");
   private voice = h("select");       // Kokoro voice
   private engine = h("select");
@@ -267,13 +268,13 @@ export class SettingsWindow {
     stateRow.append(exp, imp, pick);
     body.append(stateRow);
 
-    // --- long-term memory, to look at
+    // --- long-term memory has its own window
     body.append(h("div", "editor-group", "LONG-TERM MEMORY"));
-    body.append(h("p", "settings-note",
-      `What the brain remembers across questions, strongest first. Weights rise when a memory proves useful, ` +
-      `fall when it comes to mind for nothing, and fade a little every session; at most 60 are kept and the ` +
-      `weakest are forgotten.`));
-    body.append(this.memList);
+    const memRow = h("div", "row");
+    const memBtn = h("button", "ghost", "open memory…");
+    memBtn.addEventListener("click", () => { this.close(); this.onMemory(); });
+    memRow.append(h("span", "settings-note", "What Norbert remembers, who it is and what it has found out: "), memBtn);
+    body.append(memRow);
 
     const foot = h("div", "editor-foot");
     foot.append(this.status);
@@ -297,32 +298,7 @@ export class SettingsWindow {
     this.loadTtsModels();
     this.say("", "");
     this.refresh();
-    this.showMemories();
     this.root.classList.add("show");
-  }
-
-  private memList = h("div", "mem-list");
-
-  private async showMemories() {
-    const KIND: Record<string, string> = { said: "said", believe: "believes", interesting: "finds interesting" };
-    const list = await api.memoryList();
-    this.memList.replaceChildren();
-    if (!list.length) this.memList.append(h("div", "small", "nothing remembered yet"));
-    for (const m of list) {
-      const row = h("div", "mem-row");
-      const bar = h("span", "mem-weight");
-      bar.style.setProperty("--w", String(m.weight));
-      bar.title = `weight ${m.weight.toFixed(2)} · used ${m.uses}× · ${m.age} sessions old`;
-      const reply = m.verbatim ? `${m.text.slice(0, 240)}${m.text.length > 240 ? "…" : ""}  (latest, word for word)` : m.text;
-      const text = m.kind === "said" && m.question ? `asked "${m.question}" → ${reply}` : reply;
-      const where = m.pinned ? `core belief: never fades${m.doubts.length ? `; questioned ${m.doubts.length}× (latest: "${m.doubts.at(-1)!.text}")` : ""}`
-        : m.kind === "said" ? (m.follows !== null ? "↳ continues an earlier exchange" : "")
-        : m.context ? `from when asked "${m.context}"` : "";
-      const cell = h("span", "mem-text", text);
-      if (where) cell.append(h("span", "mem-link", where));
-      row.append(bar, h("span", "mem-kind", m.pinned ? "📌 core" : KIND[m.kind] ?? m.kind), cell);
-      this.memList.append(row);
-    }
   }
 
   private sample: HTMLAudioElement | null = null;

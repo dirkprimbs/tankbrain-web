@@ -329,6 +329,8 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 @keyframes speak-glow { 50% { box-shadow: 0 0 2px rgba(230,255,92,.2); } }
 .msg.output { cursor: pointer; }
 .mute-btn + .settings-btn { margin-left: 0; }
+/* narrower screens: "?" and "◉" without their words, so the top bar fits */
+@media (max-width: 1400px) { .settings-btn .lbl { display: none; } }
 .play-btn { margin-left: auto; color: var(--lime); border-color: var(--lime); font-family: var(--mono); font-size: 11px; }
 .play-btn + .ghost { margin-left: 6px; }
 
@@ -345,9 +347,17 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 .about-body a { color: var(--cyan); }
 .about-source { margin-top: 14px; font-size: 13px; color: var(--dim); }
 
-/* long-term memory list in Settings */
-.mem-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.mem-row { display: grid; grid-template-columns: 46px 96px 1fr; gap: 8px; align-items: baseline; }
+/* long-term memory window */
+.editor.memory-win { width: min(760px, 94vw); }
+.memory-count { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-left: auto; margin-right: 10px; }
+.mem-section > summary { cursor: pointer; list-style: none; }
+.mem-section > summary::-webkit-details-marker { display: none; }
+.mem-section > summary::before { content: "▸ "; }
+.mem-section[open] > summary::before { content: "▾ "; }
+.mem-list { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; margin-bottom: 6px; }
+.mem-row { display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: baseline; }
+.link-btn { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline dotted; }
+.link-btn:hover { color: var(--cyan); }
 .mem-weight { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--cyan, #00e5ff) calc(var(--w) * 100%), rgba(255,255,255,.12) 0); align-self: center; }
 .mem-kind { color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
 .mem-text { color: var(--text); }

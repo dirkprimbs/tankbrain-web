@@ -2,7 +2,8 @@
 import type { AgentInfo, TankEvent } from "./types";
 import { GROUP_LABELS } from "./types";
 
-const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
+const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting",
+                                       self: "something I found out about myself" };
 /** One memory as a line: an exchange shows what was asked; a belief, where it came from. */
 const memLine = (m: any) => m.kind === "said" && m.question
   ? `asked "${m.question}" → I said: ${m.text}`
@@ -269,6 +270,10 @@ export class Stream {
       }
       case "memory_suggested":
         node = this.item(e, "post", "SUGGESTS REMEMBERING", `${KIND[d.kind] ?? d.kind}: ${d.text}`, "memory minor");
+        break;
+      case "promotion":
+        node = this.item(e, "post", d.promoted ? "📌 BECOMES A CORE BELIEF" : "STAYS A DISCOVERY",
+          `"${d.text}"  (held up in ${d.sessions} conversations)\n${d.reason || (d.promoted ? "" : "no clear reason to make it core")}`, "memory");
         break;
       case "memory_stored": {
         const lines: string[] = [];
