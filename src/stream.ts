@@ -231,6 +231,7 @@ export class Stream {
         break;
       case "output":
         node = this.item(e, "post", "◀ SPOKEN REPLY", d.text, "output");
+        if (d.delivery) node.append(el("div", "delivery", `said ${d.delivery.replace(/[.\s]+$/, "")}`));
         node.title = "click to show the reply window";
         break;
       case "comes_to_mind":

@@ -108,10 +108,12 @@ export class SpeechStore {
 
   /** The spoken output channel for one live session. */
   channel(spec: SpeechSpec): AudioChannel {
-    spec = { ...spec, speed: clampSpeed(spec.speed) };
-    const engine = this.engines[spec.engine];
+    const base = { ...spec, speed: clampSpeed(spec.speed) };
+    const engine = this.engines[base.engine];
     return {
-      deliver: async (text, session, emit, cancelled) => {
+      deliver: async (text, session, emit, cancelled, mood) => {
+        // Kokoro has no delivery instructions; for OpenRouter the mood joins the style
+        const spec = mood?.trim() && base.engine === "openrouter" ? { ...base, mood: mood.trim() } : base;
         const chunks = speechPlan(text);
         const jobs: Promise<{ wav: Blob; seconds: number }>[] = [];
         const start = (i: number) => {

@@ -52,6 +52,33 @@ describe("configuration", () => {
     const cfg = await config.saveProfile(db, "copy", { Drafter: { model: "google/gemini-2.5-flash" } }, "", "diverse");
     expect(cfg.agents.get("Drafter")!.options.num_predict).toBe(1200);
   });
+
+  it("exports all voices to a file and imports it again, hidden options included", async () => {
+    const { db } = await fresh();
+    const yaml = await config.profileYaml(db, {
+      Drafter: { model: "google/gemini-2.5-flash", temperature: 0.3 },
+      Associator: { enabled: false },
+      Curator: { persona: "You only like ideas about cats." },
+    }, "", "diverse");
+    const read = await config.readProfileFile(yaml);
+    expect(read.agents.get("Drafter")!.model).toBe("google/gemini-2.5-flash");
+    expect(read.agents.get("Drafter")!.options).toMatchObject({ temperature: 0.3, num_predict: 1200 });
+    expect(read.disabled.has("Associator")).toBe(true);
+    expect(read.agents.get("Curator")!.persona.startsWith("You only like ideas about cats.")).toBe(true);
+    // saved from the editor after an import, the file's hidden options carry over
+    const saved = await config.saveProfile(db, "cheap", { Drafter: { model: "x/y" } }, "", { yaml });
+    expect(saved.agents.get("Drafter")!.options.num_predict).toBe(1200);
+    expect(await config.listProfiles(db)).toContain("cheap");
+  });
+
+  it("refuses files that aren't voice profiles, and names imports sensibly", async () => {
+    await expect(config.readProfileFile('{"session": {"id": "x"}}')).rejects.toThrow(/isn't a voice profile/);
+    await expect(config.readProfileFile("agents:\n  Nobody: {}\n")).rejects.toThrow(/unknown voices/);
+    await expect(config.readProfileFile("agents: [\n")).rejects.toThrow(/isn't YAML/);
+    expect(config.profileNameFromFile("norbert-voices-cheap.yaml")).toBe("cheap");
+    expect(config.profileNameFromFile("My Test Run (2).yml")).toBe("my-test-run-2");
+    expect(config.profileNameFromFile("norbert-voices-diverse.yaml")).toBe("diverse-copy");
+  });
 });
 
 describe("voices", () => {

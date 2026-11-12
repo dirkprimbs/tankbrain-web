@@ -41,6 +41,7 @@ export interface Output {
   verdict?: "approve" | "reject";
   reason?: string;
   reply?: string;
+  delivery?: string;      // the Voice's stage direction for saying the reply aloud
   remember?: string[];
   verdictGiven?: boolean; // the model actually said approve or reject (not a default)
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
@@ -121,7 +122,13 @@ export class Agent {
         "there is nothing left to discover. Going in circles also means low interest.");
     }
     if (this.can("verdict")) lines.push("- Give a 'verdict' (approve or reject) and a short 'reason'.");
-    if (this.can("speak")) lines.push("- Put exactly what you say in 'reply'.");
+    if (this.can("speak")) {
+      lines.push("- Put exactly what you say in 'reply'.");
+      lines.push("- Put in 'delivery' one short stage direction for saying it aloud, at most 20 words: how you feel " +
+        "about this answer and how that sounds (e.g. delighted, quietly pleased, wry, amused, hesitant), plus any " +
+        "timing that matters, such as a pause before a punchline. Base the feeling on the answer and on how it went. " +
+        "Don't quote the reply.");
+    }
     if (this.can("recognise")) {
       lines.push("- Sometimes things come to mind, listed under 'Things that come to mind'. Judge each in 'recall' " +
         "by its number: 'unrelated'; 'reminds' (it only reminds you of the matter); or 'related' (the matter " +
@@ -223,7 +230,8 @@ export class Agent {
     }
     if (this.can("speak")) {
       props.reply = { type: "string" };
-      required.push("reply");
+      props.delivery = { type: "string" };
+      required.push("reply", "delivery");
     }
     if (this.can("recognise")) {
       props.recall = { type: "array", items: {
@@ -282,7 +290,10 @@ export class Agent {
       out.verdict = out.verdictGiven ? (v as "approve" | "reject") : "approve";
       out.reason = str(data.reason).trim();
     }
-    if (this.can("speak")) out.reply = unquote(str(data.reply));
+    if (this.can("speak")) {
+      out.reply = unquote(str(data.reply));
+      out.delivery = str(data.delivery).replace(/\s+/g, " ").trim().slice(0, 200);
+    }
     const int = (x: unknown) => (typeof x === "number" && Number.isInteger(x) ? x
       : typeof x === "string" && /^\s*\d+\s*$/.test(x) ? Number(x) : null);
     if (this.can("recognise")) {

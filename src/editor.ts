@@ -1,9 +1,11 @@
 // Voice editor: per-voice model, temperature, thinking, on/off and persona,
 // saved as a custom profile in this browser (built-in profiles stay untouched).
-// Every voice runs on an OpenRouter model.
+// Every voice runs on an OpenRouter model. export…/import… move all voices'
+// settings in and out as one YAML file, to try configurations and switch back.
 import type { AgentInfo, ConfigInfo } from "./types";
 import * as api from "./api";
 import type { CloudModel } from "./engine/llm";
+import type { ProfileParent } from "./engine/config";
 import { GROUP_LABELS } from "./types";
 
 interface ModelList { cloud: CloudModel[]; cloud_error: string | null }
@@ -48,6 +50,10 @@ export class VoiceEditor {
   private title: HTMLElement;
   private rows: Row[] = [];
   private profile = "";
+  private parent: ProfileParent = null; // where hidden options (max tokens) come from
+  private source = "";                  // what the rows were loaded from, for the save note
+  private models: ModelList = { cloud: [], cloud_error: null };
+  private fileInput: HTMLInputElement;
   private only: string | null = null;
   private existing: string[] = [];
   private allBtn: HTMLButtonElement;
@@ -67,7 +73,7 @@ export class VoiceEditor {
       for (const r of this.rows) r.el.style.display = "";
       this.list.querySelectorAll<HTMLElement>(".editor-group").forEach((g) => (g.style.display = ""));
       this.allBtn.style.display = "none";
-      this.title.textContent = `CONFIGURE VOICES · based on "${this.profile}"`;
+      this.title.textContent = `CONFIGURE VOICES · ${this.source}`;
       if (keep) this.rows.find((r) => r.agent.name === keep)?.el.scrollIntoView({ block: "center" });
     });
     head.append(this.title, this.allBtn, close);
@@ -81,7 +87,24 @@ export class VoiceEditor {
     const save = h("button", "primary", "SAVE PROFILE");
     save.addEventListener("click", () => this.save());
     this.status = h("span", "editor-status");
-    foot.append(lab, this.nameInput, save, this.status);
+    const exp = h("button", "ghost", "export…");
+    exp.title = "Save all voices as they are shown here (saved or not) to a file, to load again later or elsewhere";
+    exp.addEventListener("click", () => this.exportFile());
+    const imp = h("button", "ghost", "import…");
+    imp.title = "Load all voices from an exported file into this editor; nothing changes until you save";
+    this.fileInput = h("input");
+    this.fileInput.type = "file";
+    this.fileInput.accept = ".yaml,.yml,application/yaml,text/yaml";
+    this.fileInput.style.display = "none";
+    imp.addEventListener("click", () => this.fileInput.click());
+    this.fileInput.addEventListener("change", () => {
+      const f = this.fileInput.files?.[0];
+      this.fileInput.value = "";
+      if (f) this.importFile(f);
+    });
+    const files = h("span", "editor-files");
+    files.append(exp, imp, this.fileInput);
+    foot.append(lab, this.nameInput, save, this.status, files);
     panel.append(head, this.list, foot);
     this.root.append(panel);
     this.root.addEventListener("mousedown", (e) => { if (e.target === this.root) this.close(); });
@@ -92,6 +115,8 @@ export class VoiceEditor {
   /** only=true shows just the focused voice (all are still saved). */
   async open(profile: string, focus?: string, only = false) {
     this.profile = profile;
+    this.parent = profile;
+    this.source = `based on "${profile}"`;
     this.only = only && focus ? focus : null;
     this.status.textContent = "loading…";
     this.status.className = "editor-status";
@@ -99,7 +124,7 @@ export class VoiceEditor {
     const [cfg, models]: [ConfigInfo, ModelList] = await Promise.all([api.getConfig(profile), api.models()]);
     const problems = [models.cloud_error].filter(Boolean);
     this.title.textContent = this.only ? `CONFIGURE ${this.only.toUpperCase()} · profile "${profile}"`
-      : `CONFIGURE VOICES · based on "${profile}"`;
+      : `CONFIGURE VOICES · ${this.source}`;
     this.existing = cfg.profiles;
     // from a built-in profile, suggest a name that doesn't replace anything
     let suggestion = profile;
@@ -110,6 +135,7 @@ export class VoiceEditor {
     this.nameInput.value = suggestion;
     this.status.textContent = problems.length ? `⚠ ${problems.join(" · ")}` : "";
     if (!problems.length) this.checkName();
+    this.models = models;
     this.build([...cfg.agents.map((a) => ({ a, on: true })), ...cfg.disabled.map((a) => ({ a, on: false }))], models);
     // single-voice window: hide the others (they are still saved unchanged)
     this.allBtn.style.display = this.only ? "" : "none";
@@ -230,13 +256,13 @@ export class VoiceEditor {
 
   private checkName() {
     const name = this.nameInput.value.trim().toLowerCase();
-    const replaces = name && name !== this.profile && this.existing.includes(name);
+    const editing = typeof this.parent === "string" ? this.parent : null; // re-saving it isn't a surprise
+    const replaces = name && name !== editing && this.existing.includes(name);
     this.status.textContent = replaces ? `⚠ saving will replace the existing profile "${name}"` : "";
     this.status.className = replaces ? "editor-status error" : "editor-status";
   }
 
-  private async save() {
-    const name = this.nameInput.value.trim().toLowerCase() || "custom";
+  private voices(): Record<string, any> {
     const voices: Record<string, any> = {};
     for (const r of this.rows) {
       voices[r.agent.name] = {
@@ -247,9 +273,54 @@ export class VoiceEditor {
         persona: r.persona.value,
       };
     }
+    return voices;
+  }
+
+  private say(text: string, kind: "" | "ok" | "error" = "") {
+    this.status.textContent = text;
+    this.status.className = `editor-status ${kind}`.trim();
+  }
+
+  private async exportFile() {
+    const name = this.nameInput.value.trim().toLowerCase() || this.profile || "custom";
+    try {
+      const blob = await api.exportProfile({ voices: this.voices(), note: `Exported as "${name}", ${this.source}.`, based_on: this.parent });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `norbert-voices-${name}.yaml`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      this.say(`exported ${a.download}`, "ok");
+    } catch (e) {
+      this.say(`⚠ not exported: ${(e as api.ApiError).detail ?? e}`, "error");
+    }
+  }
+
+  private async importFile(f: File) {
+    let file: Awaited<ReturnType<typeof api.readProfileFile>>;
+    try {
+      file = await api.readProfileFile(f);
+    } catch (e) {
+      this.say(`⚠ not imported: ${(e as api.ApiError).detail ?? e}`, "error");
+      return;
+    }
+    this.parent = { yaml: file.yaml };
+    this.source = `imported from ${f.name}`;
+    this.only = null;
+    this.allBtn.style.display = "none";
+    this.title.textContent = `CONFIGURE VOICES · ${this.source}`;
+    this.build([...file.agents.map((a) => ({ a, on: true })), ...file.disabled.map((a) => ({ a, on: false }))], this.models);
+    this.nameInput.value = file.name;
+    this.checkName();
+    if (!this.status.textContent) this.say(`loaded ${f.name}: check the voices, then save it as a profile`, "ok");
+  }
+
+  private async save() {
+    const name = this.nameInput.value.trim().toLowerCase() || "custom";
+    const voices = this.voices();
     this.status.textContent = "saving…";
     try {
-      await api.saveProfile(name, { voices, note: `Based on "${this.profile}".`, based_on: this.profile });
+      await api.saveProfile(name, { voices, note: `${this.source[0].toUpperCase()}${this.source.slice(1)}.`, based_on: this.parent });
     } catch (e) {
       this.status.textContent = `⚠ ${(e as api.ApiError).detail ?? e}`;
       this.status.className = "editor-status error";

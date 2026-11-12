@@ -78,7 +78,33 @@ export async function getConfig(profile = "diverse") {
   };
 }
 
-export async function saveProfile(name: string, body: { voices: Record<string, config.VoiceSettings>; note?: string; based_on?: string | null }) {
+/** All voices as a profile file (YAML), as the editor shows them, saved or not. */
+export async function exportProfile(body: { voices: Record<string, config.VoiceSettings>; note?: string; based_on?: config.ProfileParent }): Promise<Blob> {
+  try {
+    const yaml = await config.profileYaml(db, body.voices, body.note ?? "", body.based_on ?? null);
+    return new Blob([yaml], { type: "application/yaml" });
+  } catch (e) {
+    throw new ApiError(400, (e as Error).message);
+  }
+}
+
+/** Read a profile file for the editor: its voices, a suggested name, and its text. */
+export async function readProfileFile(f: File) {
+  const text = await f.text();
+  try {
+    const cfg = await config.readProfileFile(text, db);
+    return {
+      name: config.profileNameFromFile(f.name),
+      yaml: text,
+      agents: [...cfg.agents.values()].map(config.publicView),
+      disabled: [...cfg.disabled.values()].map(config.publicView),
+    };
+  } catch (e) {
+    throw new ApiError(400, (e as Error).message);
+  }
+}
+
+export async function saveProfile(name: string, body: { voices: Record<string, config.VoiceSettings>; note?: string; based_on?: config.ProfileParent }) {
   try {
     const cfg = await config.saveProfile(db, name, body.voices, body.note ?? "", body.based_on ?? null);
     return { profile: name, voices: cfg.agents.size, disabled: [...cfg.disabled.keys()].sort() };
@@ -209,6 +235,9 @@ export function audioUrl(key: string): Promise<string> {
       : { engine: "kokoro", voice: m[1], speed, model: "", style: "" };
     if (spec.engine === "kokoro" && !VOICES.includes(spec.voice)) return null;
     const row = await log.session(session);
+    // the reply is said in the mood the Voice gave it
+    const mood = (await log.events(session)).find((e) => e.kind === "output")?.data?.delivery;
+    if (spec.engine === "openrouter" && mood) spec.mood = String(mood);
     const plan = row?.answer ? speechPlan(row.answer) : [];
     if (index >= plan.length || name !== (await chunkName(spec, index, plan[index]))) return null;
     return { text: plan[index], spec };

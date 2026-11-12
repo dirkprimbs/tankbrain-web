@@ -24,6 +24,20 @@ export const SPEAK =
   "If the draft already reads well, say it almost word for word; only smooth what is awkward.";
 export const SPEAK_UNSURE = SPEAK +
   " The final check was not convinced by this answer: say it, but make clear that you are not certain it is right.";
+/** How the thinking went, for the Voice's tone of voice: the Motivator's
+ * interest along the way, what the final check made of it, how many versions. */
+export function howItWent(h: { interests: number[]; rejections: number; approved: boolean | null;
+                                versions: number; cycles: number }): string {
+  const parts: string[] = [];
+  if (h.interests.length) parts.push(`interest along the way (0 to 10): ${h.interests.slice(-8).join(" → ")}`);
+  if (h.approved === true) {
+    parts.push(h.rejections ? `the final check approved it after sending it back ${h.rejections === 1 ? "once" : `${h.rejections} times`}`
+      : "the final check approved it at first look");
+  } else if (h.approved === false) parts.push("the final check was not convinced");
+  parts.push(`${h.versions} version${h.versions === 1 ? "" : "s"} of the answer over ${h.cycles} cycle${h.cycles === 1 ? "" : "s"}`);
+  return `How it went (for your tone of voice only; never mention it): ${parts.join("; ")}.`;
+}
+
 /** Said when no draft was ever written: nothing to say, and the Voice must not improvise. */
 export const NO_ANSWER = "Sorry, I didn't manage to work out an answer this time.";
 export const MAX_KEEP = 3; // suggestions kept per session (plus the reply itself)
@@ -76,8 +90,9 @@ export const CONSOLIDATE = (question: string, answer: string, sugg: Suggestion[]
 
 /** Optional spoken output channel (Kokoro in the browser). */
 export interface AudioChannel {
+  /** mood: the Voice's stage direction for this reply (speech models that take delivery instructions use it). */
   deliver(text: string, session: string, emit: (kind: string, data: Record<string, any>) => void,
-          cancelled: () => boolean): Promise<unknown>;
+          cancelled: () => boolean, mood?: string): Promise<unknown>;
 }
 
 export class Cancelled extends Error {
@@ -116,6 +131,7 @@ export class Brain {
   energy!: Energy;
   cycle = 0;
   drafterReady = false;
+  interests: number[] = []; // the Motivator's reports, for the Voice's tone
   suggestions = new Map<string, { kind: "believe" | "interesting"; text: string }>();
   followsUp: number | null = null; // the exchange this question follows up on, if any
   self: string[] = [];             // the core beliefs, for the voices granted "self"
@@ -233,6 +249,7 @@ export class Brain {
 
     if (agent.can("interest") && out.interest !== null && out.interest !== undefined) {
       const level = this.energy.reportInterest(out.interest);
+      this.interests.push(out.interest);
       this.emit("interest", agent.name, { value: out.interest, level: round(level, 3) });
     }
     return [fresh, out];
@@ -563,16 +580,22 @@ export class Brain {
     // no draft: say so plainly (asked to speak "the draft", a small model reads out its instructions);
     // a draft the gate looked at and didn't approve is said with a caveat
     let answer = hasDraft ? this.draft.current : NO_ANSWER;
+    let delivery = "";
     if (speaker && hasDraft) {
-      const doubted = !!gate && gatedVersion === this.draft.version && approvedVersion !== this.draft.version;
-      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, doubted ? SPEAK_UNSURE : SPEAK);
+      const gated = !!gate && gatedVersion === this.draft.version;
+      const doubted = gated && approvedVersion !== this.draft.version;
+      const went = howItWent({ interests: this.interests, rejections, approved: gated ? !doubted : null,
+                               versions: this.draft.version, cycles: this.cycle });
+      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, `${doubted ? SPEAK_UNSURE : SPEAK} ${went}`);
       answer = out.reply || answer;
+      if (out.reply) delivery = out.delivery ?? "";
     }
-    this.emit("output", speaker, { channel: "speech", text: answer }); // the speech (text) output channel
+    // the speech (text) output channel, with how it is meant to sound
+    this.emit("output", speaker, { channel: "speech", text: answer, ...(delivery ? { delivery } : {}) });
 
     const speakAloud = async () => {
       if (this.audio && answer) {
-        await this.audio.deliver(answer, this.session, (kind, d) => this.emit(kind, speaker, d), () => this.cancelled);
+        await this.audio.deliver(answer, this.session, (kind, d) => this.emit(kind, speaker, d), () => this.cancelled, delivery);
       }
     };
     const remember = async () => {

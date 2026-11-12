@@ -164,16 +164,19 @@ export interface VoiceSettings {
   persona?: string;
 }
 
-/** Save a custom profile from per-voice settings (from the UI) in this browser.
- * Model options the UI doesn't show (e.g. max tokens) are inherited from the
- * `basedOn` profile. Only values that differ from agents.yaml are stored.
- * Throws for bad names, built-in profiles or invalid configs. */
-export async function saveProfile(db: Store, name: string, voices: Record<string, VoiceSettings>,
-                                  note = "", basedOn: string | null = null): Promise<BrainConfig> {
-  if (!PROFILE_NAME.test(name)) throw new Error("profile name: lowercase letters, digits, - and _ only");
-  if (builtinProfiles().includes(name)) throw new Error(`'${name}' is built in; save under another name`);
+/** Where a profile's hidden model options (e.g. max tokens) come from: a
+ * profile in this browser, or the text of an imported profile file. */
+export type ProfileParent = string | { yaml: string } | null;
+
+/** The YAML of a custom profile from per-voice settings (from the UI).
+ * Model options the UI doesn't show (e.g. max tokens) are inherited from
+ * `basedOn`. Every voice's model is written out, so the file stands on its own;
+ * other values only where they differ from agents.yaml. Throws for invalid configs. */
+export async function profileYaml(db: Store, voices: Record<string, VoiceSettings>,
+                                  note = "", basedOn: ProfileParent = null): Promise<string> {
   const base = new Map<string, any>(baseConfig().agents.map((a: any) => [a.name, a]));
-  const parent = basedOn && (await listProfiles(db)).includes(basedOn) ? await load(basedOn, db) : null;
+  const parent = typeof basedOn === "object" && basedOn ? await load("imported", db, basedOn.yaml)
+    : basedOn && (await listProfiles(db)).includes(basedOn) ? await load(basedOn, db) : null;
   const agents: Record<string, any> = {};
   for (const [vname, v] of Object.entries(voices)) {
     const b = base.get(vname);
@@ -195,7 +198,44 @@ export async function saveProfile(db: Store, name: string, voices: Record<string
   }
   const header = `# Custom profile saved from the UI. ${note}`.trimEnd() + "\n";
   const yaml = header + YAML.stringify({ default: {}, agents });
-  const cfg = await load(name, db, yaml); // validate before storing
+  await load("custom", db, yaml); // validate
+  return yaml;
+}
+
+/** Save a custom profile from per-voice settings in this browser (see profileYaml).
+ * Throws for bad names, built-in profiles or invalid configs. */
+export async function saveProfile(db: Store, name: string, voices: Record<string, VoiceSettings>,
+                                  note = "", basedOn: ProfileParent = null): Promise<BrainConfig> {
+  if (!PROFILE_NAME.test(name)) throw new Error("profile name: lowercase letters, digits, - and _ only");
+  if (builtinProfiles().includes(name)) throw new Error(`'${name}' is built in; save under another name`);
+  const yaml = await profileYaml(db, voices, note, basedOn);
+  const cfg = await load(name, db, yaml);
   await db.put("profiles", { name, yaml, saved: Date.now() / 1000 });
   return cfg;
+}
+
+/** Read a profile file (exported from this or another browser). Throws if it
+ * isn't a voice profile or doesn't fit this version's voices. */
+export async function readProfileFile(text: string, db: Store | null = null): Promise<BrainConfig> {
+  let raw: any;
+  try {
+    raw = YAML.parse(text);
+  } catch {
+    throw new Error("that file isn't YAML");
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.agents !== "object" || !raw.agents) {
+    throw new Error("that file isn't a voice profile (it needs an agents: section)");
+  }
+  const known = new Set(baseConfig().agents.map((a: any) => a.name));
+  const unknown = Object.keys(raw.agents).filter((n) => !known.has(n));
+  if (unknown.length) throw new Error(`unknown voices in the file: ${unknown.join(", ")}`);
+  return load("imported", db, text);
+}
+
+/** A profile name from an exported file's name ("norbert-voices-cheap.yaml" → "cheap"). */
+export function profileNameFromFile(file: string): string {
+  let name = file.replace(/\.(ya?ml|txt)$/i, "").replace(/^norbert-voices-/i, "").toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|-+$/g, "").slice(0, 24) || "imported";
+  if (builtinProfiles().includes(name)) name = `${name}-copy`;
+  return name;
 }

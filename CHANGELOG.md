@@ -3,6 +3,11 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.2.0 · 2026-11-12 · A voice with feelings
+
+- Norbert's spoken reply has a mood now. The voice that speaks hears how the thinking went (how interested Norbert was, whether the answer passed its own check first time) and says how the reply should sound: delighted, wry, a little unsure… The stream shows it under the spoken reply.
+- Configure voices can export all the voices' settings to a file and import such a file again, to try different setups and switch back.
+
 ## 1.1.1 · 2026-11-11
 
 - Fixed: ■ stop on the spoken reply stopped only the current sentence; the rest of the reply kept coming. Now it stops the whole reply, and stopping the session silences it too.
