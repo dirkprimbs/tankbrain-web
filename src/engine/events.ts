@@ -37,6 +37,19 @@ export class EventLog {
     });
   }
 
+  /** How the brain felt when the session ended (the next one starts from it). */
+  setMood(session: string, mood: NonNullable<SessionRow["mood"]>): void {
+    this.queue(async () => {
+      const row = await this.db.get("sessions", session);
+      if (row) await this.db.put("sessions", { ...row, mood });
+    });
+  }
+
+  /** The latest mood a session ended with (demos carry none). */
+  async lastMood(): Promise<SessionRow["mood"] | null> {
+    return (await this.sessions(200)).find((s) => s.mood)?.mood ?? null;
+  }
+
   /** A running session says it is alive now and then, so another tab of the app
    * doesn't take it for one that was cut off. */
   heartbeat(session: string): void {

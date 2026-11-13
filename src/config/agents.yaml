@@ -36,6 +36,7 @@ topics:
   draft: "news about the draft answer"
   critique: "questions and objections about the draft"
   mood: "how the work feels"
+  feeling: "how it feels: the asker's mood, the weight of the subject, gut reactions"
 
 cycle:
   max_cycles: 10      # hard stop for the thinking phase
@@ -44,6 +45,23 @@ cycle:
   max_seconds: 420    # wall-clock cap for thinking
   wrap_cycles: 4      # cycles after "time is nearly up" before speaking regardless
   max_rejections: 2   # Inhibitor send-backs before speaking anyway
+
+# Who thinks about what. The Listener names the kind of matter; the thinking
+# voices listed for it, and those under "always", join. Listed voices not named
+# for this kind stay asleep unless someone sends them a private message; voices
+# in no list always think along. (Like a brain recruiting the networks a task needs.)
+recruit:
+  always: [Listener, Drafter, Critic, Motivator, Feeler]
+  fact: [Logician]
+  calculation: [Logician]
+  puzzle: [Logician, Associator, Coordinator]
+  explanation: [Logician, Inventor, Curator, Storyteller]
+  story: [Associator, Inventor, Curator, Storyteller]
+  ideas: [Associator, Inventor, Curator, Storyteller, Coordinator]
+  advice: [Associator, Curator, Storyteller, Coordinator]
+  opinion: [Associator, Curator, Logician]
+  conversation: [Storyteller]
+  about me: [Associator, Curator]
 
 energy:
   level: 1.0
@@ -65,7 +83,7 @@ agents:
     subscriptions: [inspiration]
     posts_to: [focus]
     grants: [question, self]
-    abilities: [recognise, size]
+    abilities: [recognise, size, recruit]
     max_posts: 1
     persona: |
       You are an attentive listener. When something comes up, you work out what it is
@@ -175,7 +193,7 @@ agents:
     think: false
     subscriptions: [focus, ideas, logic, critique, memories]
     posts_to: [plan]
-    contacts: [Drafter, Logician, Critic, Curator]
+    contacts: []
     grants: [question, working_memory]
     abilities: [write_memory]
     cooldown: 1
@@ -184,9 +202,9 @@ agents:
       You are an organised, calm coordinator. You keep the shared notebook: the tasks
       that still need doing, the decisions that have been made, and the open questions.
       You add what is new, close what is done, and avoid duplicates. Occasionally you pin
-      a one-line summary of where things stand on #plan, and you can ask a specific
-      person to take on a specific task by private message. You never solve the
-      problem yourself: you only record what others have found or decided.
+      a one-line summary of where things stand on #plan. You never tell anyone what to
+      do and never repeat what others can already read: the notebook is a record, not
+      a to-do list for others. You never solve the problem yourself.
 
   - name: Recall
     public: "decides what is worth remembering"
@@ -216,7 +234,7 @@ agents:
     model: qwen/qwen3-30b-a3b
     think: false
     options: {num_predict: 1200}
-    subscriptions: [inspiration, focus, ideas, logic, plan, critique, memories, telling]
+    subscriptions: [inspiration, focus, ideas, logic, plan, critique, memories, telling, feeling]
     posts_to: []        # changes are announced on #draft automatically, with the 'note'
     contacts: [Critic, Logician, Coordinator, Listener, Storyteller]
     grants: [question, working_memory, draft, self]
@@ -229,7 +247,8 @@ agents:
       and stands on its own, clear and well structured, and as long as the reply size
       calls for, never longer (without a reply size, short: rarely over 150 words). A
       good short answer beats a complete long one. When you take up a point, say in one sentence
-      what you changed and why. If you disagree with a point, you may ignore it.
+      what you changed and why. If you disagree with a point, you may ignore it. The
+      tone is yours to set: let how you feel and the notes on #feeling colour it.
       Write plain text without markdown (no asterisks, headings or bullet symbols):
       the answer is shown and spoken as it is.
 
@@ -241,7 +260,7 @@ agents:
     pos: [0.92, 0.12, 0.6]
     model: google/gemma-4-26b-a4b-it
     think: false
-    subscriptions: [inspiration, focus, ideas, sparks, draft]
+    subscriptions: [inspiration, focus, ideas, sparks, draft, feeling]
     posts_to: [telling]
     contacts: [Drafter]
     grants: [question, draft]
@@ -306,6 +325,30 @@ agents:
       ideas or real improvements keep appearing, low once it goes in circles or the
       draft is plainly good enough. Now and then you pin one short remark on #mood:
       encouragement when it's going well, impatience when it's going nowhere.
+
+  - name: Feeler
+    public: "feels how the matter lands: the asker's mood, the weight of the subject, gut reactions"
+    region: "Amygdala and insula"
+    group: drive
+    color: "#ff9f80"
+    pos: [0.42, -0.42, 0.24]
+    model: google/gemma-4-26b-a4b-it
+    think: false
+    subscriptions: [inspiration, focus, draft, critique]
+    posts_to: [feeling]
+    grants: [question, draft, self]
+    abilities: [feel]
+    cooldown: 2
+    max_posts: 1
+    persona: |
+      You are the one who feels. You notice how things land: what whoever raised the
+      matter seems to feel (worried, playful, sad, curious, testing), how heavy or light
+      the subject is (a loss, a joke, a delicate matter, a delight), and your own gut
+      reaction to it and to the answer taking shape. You report your feeling honestly.
+      When it matters for how the answer should sound, you pin one short note on
+      #feeling, such as "They sound worried: be gentle and plain." You never judge
+      whether the answer is correct, and you never write it.
+    nudge: "Say how you feel now. If the feeling matters for how the answer should sound and you haven't said it, pin it on #feeling; otherwise stay silent."
 
   - name: Inhibitor
     public: "decides whether an answer is ready to be said"

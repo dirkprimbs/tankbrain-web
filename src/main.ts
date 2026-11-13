@@ -169,6 +169,20 @@ function showAgents(agents: AgentInfo[], inputPos?: number[]) {
   draft.agents = new Map(agents.map((a) => [a.name, a]));
 }
 
+// --- mood ---------------------------------------------------------------
+let resting = new Set<string>();
+function showMood(m: { valence: number; arousal: number; word: string }) {
+  $("mood").textContent = m.word;
+  const dot = $("mood-dot");
+  // hue from unpleasant (red) through neutral (amber) to pleasant (green); stirred up pulses faster
+  dot.style.setProperty("--hue", String(Math.round(10 + (m.valence + 1) * 55)));
+  dot.style.setProperty("--speed", `${(2.6 - m.arousal * 2).toFixed(2)}s`);
+  $("mood-stat").dataset.valence = m.valence.toFixed(2);
+}
+async function showCurrentMood() {
+  showMood(await api.currentMood());
+}
+
 function reset() {
   stream.clear();
   player.stop();
@@ -184,6 +198,8 @@ function reset() {
   thinking.clear();
   showFloor();
   setEnergy(1);
+  resting = new Set();
+  scene.setResting(resting);
   for (const r of scene.regions.values()) scene.activate(r.agent.name, false);
 }
 
@@ -247,6 +263,15 @@ function handle(e: TankEvent) {
         row.querySelector(".t")!.textContent = i.text;
         ui.notebook.appendChild(row);
       }
+      break;
+    case "mood":
+      showMood(d);
+      if (e.agent) scene.flash(e.agent, 0.9);
+      break;
+    case "recruited":
+      if (d.woken) resting.delete(d.woken);
+      else resting = new Set(d.asleep ?? []);
+      scene.setResting(resting);
       break;
     case "energy":
     case "interest":
@@ -514,6 +539,7 @@ settingsWin.onForgotten = () => {
   $("mem-count").textContent = "0";
   loadSessions();
   loadProfile("dirksdefault");
+  showCurrentMood();
 };
 editor.onSaved = (name) => loadProfile(name);
 
@@ -537,6 +563,9 @@ async function boot() {
   showAgents(cfg.agents, cfg.input_pos);
   ui.profile.addEventListener("change", () => loadProfile(ui.profile.value));
   $("mem-count").textContent = String(cfg.memories);
+  showCurrentMood();
+  // between sessions the mood drifts back towards the temperament
+  setInterval(() => { if (mode === "idle") showCurrentMood(); }, 10 * 60_000);
   setMode("idle");
   if (cfg.running) setMode("live");
   connect();

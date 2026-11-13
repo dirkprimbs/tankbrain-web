@@ -7,7 +7,13 @@
 //   playing later when its download finishes;
 // - an interrupted play() (AbortError) is retried, not skipped;
 // - if the browser blocks sound (no click yet), playback stops instead of
-//   racing through the queue.
+//   racing through the queue;
+// - after a pause, a short, nearly silent lead-in wakes the output first:
+//   Bluetooth headsets (and some sound cards) power down or mute when quiet
+//   and would swallow the first words while they come back.
+
+const LEAD_AFTER_MS = 2500; // silent this long: the next chunk gets a lead-in
+const LEAD_IN_MS = 400;
 
 export class VoicePlayer {
   private queue: string[] = [];
@@ -23,6 +29,7 @@ export class VoicePlayer {
   /** Turns a queued chunk key into a playable URL (making the audio if needed). */
   resolve: (key: string) => Promise<string> = async (k) => k;
   private keys = new WeakMap<HTMLAudioElement, string>();
+  private lastSound = 0; // when sound last played (ms)
   private loading = new WeakMap<HTMLAudioElement, Promise<void>>();
 
   get playing(): boolean {
@@ -115,9 +122,12 @@ export class VoicePlayer {
     const advance = () => {
       if (this.current === a) this.playNext(); // only once, only for the current chunk
     };
-    a.onended = advance;
+    a.onended = () => {
+      this.lastSound = performance.now();
+      advance();
+    };
     a.onerror = advance; // a broken chunk is skipped
-    (this.loading.get(a) ?? Promise.resolve()).then(() => this.start(a, 0), advance);
+    (this.loading.get(a) ?? Promise.resolve()).then(() => this.wake()).then(() => this.start(a, 0), advance);
     this.prefetch();
   }
 
@@ -140,6 +150,25 @@ export class VoicePlayer {
         this.playNext();
       }
     });
+  }
+
+  /** After a pause, play a short lead-in of nearly inaudible noise (about -56 dB)
+   * and wait for it: a sleeping output wakes on it instead of on the first words.
+   * Between chunks of a reply there is no pause, so no lead-in. */
+  private wake(): Promise<void> {
+    const idle = performance.now() - this.lastSound;
+    if (!this.ctx || idle < LEAD_AFTER_MS) return Promise.resolve();
+    const ctx = this.ctx;
+    const n = Math.round(ctx.sampleRate * LEAD_IN_MS / 1000);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * 0.0015;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start();
+    this.lastSound = performance.now();
+    return new Promise((r) => setTimeout(r, LEAD_IN_MS));
   }
 
   private meter = () => {

@@ -12,6 +12,7 @@ import { forgetEverything, openStore, type EventRow, type Store } from "./engine
 import { exportSession as exportFile, forgetDemoMemories, importDemos, importSession, type SessionFile } from "./engine/sessionfile";
 import { exportState as exportStateFile, importState as importStateFile, isStateFile } from "./engine/statefile";
 import { settings } from "./settings";
+import { restore as restoreMood, type MoodState } from "./engine/mood";
 import { OpenRouterSpeech, type SpeechModel } from "./speech/openrouter";
 export type SpeechModelInfo = SpeechModel;
 import { kokoroEngine, KokoroSynth, SpeechStore } from "./speech/synth";
@@ -316,6 +317,11 @@ export async function importState(f: File): Promise<string> {
   const n = await importStateFile(db, file);
   for (const [k, v] of Object.entries(file.settings ?? {})) if (SETTING.test(k) && k !== SECRET) localStorage.setItem(k, String(v));
   return `restored ${n.sessions} sessions, ${n.memories} memories and ${n.profiles} saved profiles`;
+}
+
+/** How Norbert feels now: the last session's mood, drifted back towards its temperament since. */
+export async function currentMood(): Promise<MoodState> {
+  return restoreMood(await log.lastMood());
 }
 
 /** The long-term memories, strongest first (for looking at, not for the brain). */

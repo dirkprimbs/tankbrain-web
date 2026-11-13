@@ -196,6 +196,20 @@ export class Stream {
       case "ready":
         node = this.item(e, "post", `READY · v${d.version}`, "considers the draft finished", "minor");
         break;
+      case "mood": {
+        const how = `${d.valence > 0.15 ? "pleasant" : d.valence < -0.15 ? "unpleasant" : "neutral"}, ${d.arousal > 0.6 ? "stirred up" : d.arousal < 0.3 ? "calm" : "awake"}`;
+        node = d.why === "carried over"
+          ? this.sys(e, `◐ mood carried over: ${d.word} (${how})`)
+          : this.item(e, "post", "FEELS", `${d.word} (${how})  ·  said valence ${d.valence_said}/5, arousal ${d.arousal_said}/10`, "minor");
+        break;
+      }
+      case "recruited":
+        node = d.woken
+          ? this.sys(e, `⏻ ${d.woken} wakes up: ${d.by} wrote to it`)
+          : this.sys(e, d.kind
+            ? `⏻ a matter of kind "${d.kind}": ${d.awake.join(", ")} think about it${d.asleep.length ? `; ${d.asleep.join(", ")} rest` : ""}`
+            : `⏻ no kind named: everyone thinks about it`);
+        break;
       case "size":
         node = this.item(e, "post", "REPLY SIZE", `${d.size} (at most about ${d.words} words)`, "minor");
         break;

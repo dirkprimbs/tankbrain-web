@@ -57,6 +57,13 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .stat { display: flex; flex-direction: column; font-family: var(--mono); }
 .stat label { font-size: 9.5px; letter-spacing: 0.2em; color: var(--dim); }
 .stat b { font-weight: 400; color: var(--text); font-size: 14px; }
+.stat.mood b { display: flex; align-items: center; gap: 6px; white-space: nowrap; max-width: 130px; }
+#mood-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: hsl(var(--hue, 70) 95% 60%);
+  box-shadow: 0 0 8px hsl(var(--hue, 70) 95% 60%); animation: mood-pulse var(--speed, 1.8s) ease-in-out infinite; }
+#mood { overflow: hidden; text-overflow: ellipsis; }
+@keyframes mood-pulse { 50% { opacity: .45; transform: scale(.8); } }
+.hud { min-width: 0; }
+.stat.wide { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .stat.wide b { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lime); }
 .stat.energy { flex-direction: row; align-items: center; gap: 8px; }
 .stat.energy label { writing-mode: horizontal-tb; }
@@ -329,8 +336,8 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 @keyframes speak-glow { 50% { box-shadow: 0 0 2px rgba(230,255,92,.2); } }
 .msg.output { cursor: pointer; }
 .mute-btn + .settings-btn { margin-left: 0; }
-/* narrower screens: "?" and "◉" without their words, so the top bar fits */
-@media (max-width: 1400px) { .settings-btn .lbl { display: none; } }
+/* narrower screens: "?", "◉" and "⚙" without their words, so the top bar fits */
+@media (max-width: 1600px) { .settings-btn .lbl, .settings-btn .lbl-narrow { display: none; } }
 .play-btn { margin-left: auto; color: var(--lime); border-color: var(--lime); font-family: var(--mono); font-size: 11px; }
 .play-btn + .ghost { margin-left: 6px; }
 
@@ -371,3 +378,6 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 .changelog ul { margin: 0 0 8px; padding-left: 20px; }
 .changelog li { margin: 0 0 5px; }
 .changelog .row { margin-top: 12px; }
+
+/* voices not recruited for the matter at hand rest */
+.region-label.resting { opacity: .35; }

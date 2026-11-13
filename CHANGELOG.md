@@ -3,6 +3,13 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.5.0 · 2026-11-13 · A mood of its own
+
+- Norbert has a mood. A new voice, the Feeler, notices how a question lands (how the asker seems to feel, how heavy or light the subject is) and how it feels about the answer. Its reactions move Norbert's mood, which colours the tone of the answer and how it is spoken. The mood is shown at the top and carries over to the next conversation, drifting back to curious over a few hours.
+- Not every voice thinks about everything any more. The Listener hears first and says what kind of question it is, and only the voices it needs join in; the others rest (shown faded on the brain) unless someone calls on them. Simple questions get answered with less fuss.
+- The Coordinator keeps its notebook but no longer tells the others what to do.
+- Fixed: the first words of the spoken reply could be swallowed by Bluetooth headsets waking up. A short, inaudible lead-in now wakes the audio first.
+
 ## 1.4.0 · 2026-11-13 · Finding out who it is
 
 - Norbert starts out knowing very little about what it is, where it is or what it's for, and says so instead of guessing.

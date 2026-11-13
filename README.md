@@ -6,7 +6,7 @@ No voice knows it is part of a brain. Each one only knows its own temperament an
 
 **Live:** [primbs.ca/tankbrain](https://primbs.ca/tankbrain/) · **Source:** [github.com/dirkprimbs/tankbrain-web](https://github.com/dirkprimbs/tankbrain-web)
 
-![Thirteen voices thinking about "Can God create a stone too heavy for him to lift?": the brain in its tank, with the voices that are thinking right now lit up, and the inner-speech stream on the right](docs/tank.jpg)
+![Fourteen voices thinking about "Can God create a stone too heavy for him to lift?": the brain in its tank, with the voices that are thinking right now lit up, and the inner-speech stream on the right](docs/tank.jpg)
 
 <table><tr>
 <td width="50%"><a href="docs/voice-card.jpg"><img src="docs/voice-card.jpg" alt="Hovering a voice shows its card: job, what it reads and writes, its model and what it is doing right now. Behind it, the draft panel says which notes the new version responds to."></a><br><sub><b>A voice up close.</b> Hover any voice for its job, model and current state. The draft panel shows what each new version is a response to.</sub></td>
@@ -38,15 +38,18 @@ The app reads no environment variables and has no backend. The only hosts it tal
 | Inventor | precuneus | vivid, concrete material: images, scenarios, analogies, twists (#sparks) |
 | Curator | right prefrontal | keeps the useful associations and sparks, with reasons (#ideas) |
 | Logician | left parietal | maths and logic checks (#logic) |
-| Coordinator | left hippocampus | **only writer** of the notebook: tasks, decisions, questions |
+| Coordinator | left hippocampus | **only writer** of the notebook: tasks, decisions, questions (a record; it gives no orders) |
 | Recall | right hippocampus | brings up long-term memories; **only writer** of long-term memory |
 | Drafter | left prefrontal | **only writer** of the versioned draft |
 | Storyteller | right inferior frontal gyrus | how the answer should be told: hook, order, example, tone (#telling) |
 | Critic | anterior cingulate | questions the draft (#critique) |
 | Motivator | striatum | reports interest, which drives the energy level |
+| Feeler | amygdala and insula | feels how the matter lands (the asker's mood, the subject's weight, gut reactions); moves the mood (#feeling) |
 | Inhibitor | orbitofrontal | approves or sends the final draft back |
 | Voice | Broca's area | speaks the reply on the output channel |
 
+* **Who thinks about it.** The Listener hears first and names the kind of matter (fact, calculation, puzzle, explanation, story, ideas, advice, opinion, conversation, about me). The `recruit:` table in `agents.yaml` says which thinking voices join for each kind; the ones under `always` (Listener, Drafter, Critic, Motivator, Feeler) always do. The rest **rest**, shown faded on the brain, until someone writes to them privately, which wakes them. A voice in no list always thinks along.
+* **Mood.** Norbert's mood is core affect: how pleasant (valence) and how stirred up (arousal) it feels, with a word for it. The **Feeler** reports a feeling during the session and each report moves the mood a third of the way towards it. The voices that speak for the brain are told how it feels ("it colours their tone, never what is true"), so it shapes the Drafter's tone and the Voice's delivery. The mood is shown at the top (the dot's colour is valence, its pulse arousal), stored with each session, and carried over to the next, drifting back to its temperament (curious) with a half-life of four hours.
 * **Cycles and attention.** Each cycle, the voices with unread input are ranked by salience (DMs over board posts) and the top `max_turns` get the floor. They think side by side, up to the parallelism set in Settings.
 * **Stopping.** Energy decays every cycle, fresh ideas bump it a little, and the Motivator's interest pulls it up or down. The thinking phase ends when energy falls below the threshold, when nobody has anything left to read ("quiet"), or at the cycle or time cap.
 * **Wrap-up.** The Drafter hears "time is nearly up" and the cycles continue, but now only messages addressed to a voice wake it: board posts no longer do, so the voices that have had their say stay quiet instead of repeating themselves. The Drafter marks the draft *ready* when it considers it finished (or the Inhibitor steps in once nobody has anything left to say). A rejection goes back to the Drafter as a private message, together with the latest critique, so the Drafter weighs both instead of simply obeying the gate; then the cycles continue. It's bounded by `wrap_cycles` and `max_rejections`. Then the Voice speaks and Recall decides what is worth remembering (see Long-term memory). If the Inhibitor's last look at the final draft was a rejection, the Voice says it but makes clear it isn't certain; if no draft was ever written, the brain says it didn't manage an answer instead of letting the Voice improvise.

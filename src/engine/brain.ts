@@ -5,6 +5,7 @@ import { Agent, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Si
 import { Bus, INPUT_TOPIC, type Message } from "./bus";
 import { owner, publicView, type BrainConfig } from "./config";
 import { Energy } from "./energy";
+import { describe as describeMood, feel, restore, type MoodState } from "./mood";
 import type { EventLog } from "./events";
 import type { LLM } from "./llm";
 import { Draft, isPlaceholder } from "./memory/draft";
@@ -160,6 +161,9 @@ export class Brain {
   private lengthJudged = false;
   suggestions = new Map<string, { kind: SuggestKind; text: string }>();
   private found: string[] = []; // self-discoveries, for the voices that speak for the brain
+  mood: MoodState = restore(null); // how the brain feels; carried over from the last session
+  asleep = new Set<string>();      // thinking voices not recruited for this matter (a private message wakes them)
+  private recruited = false;
   private went = "";           // how the thinking went (for the Voice, and for Recall)
   followsUp: number | null = null; // the exchange this question follows up on, if any
   self: string[] = [];             // the core beliefs, for the voices granted "self"
@@ -198,6 +202,13 @@ export class Brain {
     for (const a of this.agents.values()) {
       if (a.spec.phase !== "think") continue;
       let unread = this.bus.unread(a.name, a.subs, a.state.lastSeen);
+      if (this.asleep.has(a.name)) {
+        // not recruited: only something addressed to it wakes it
+        const call = unread.find((m) => (m.kind === "dm" || m.kind === "signal") && m.to === a.name);
+        if (!call) continue;
+        this.asleep.delete(a.name);
+        this.emit("recruited", call.sender, { woken: a.name, by: call.sender });
+      }
       if (wrap) unread = unread.filter((m) => m.kind === "dm" || m.kind === "signal");
       if (!unread.length) continue;
       pending++;
@@ -211,7 +222,7 @@ export class Brain {
     if (this.cancelled) throw new Cancelled();
     const inbox = this.bus.unread(agent.name, agent.subs, agent.state.lastSeen);
     const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction,
-                  self: this.self, lengthNotes: this.lengthNotes, found: this.found,
+                  self: this.self, lengthNotes: this.lengthNotes, found: this.found, mood: describeMood(this.mood),
                   size: this.size ? `About ${this.size} (at most about ${SIZE_WORDS[this.size]} words), judged from what ` +
                     "the person seems to want. Fit the reply to it: keep what answers the question, leave out the rest; " +
                     "they can always ask for more." : undefined };
@@ -280,6 +291,11 @@ export class Brain {
     }
 
     if (agent.can("size")) await this.sized(agent, out);
+    if (agent.can("recruit") && !this.recruited) this.recruit(agent, out.kind ?? null);
+    if (agent.can("feel") && out.feel) {
+      this.mood = feel(this.mood, out.feel.valence, out.feel.arousal, out.feel.word);
+      this.emit("mood", agent.name, { ...this.mood, why: "feels", valence_said: out.feel.valence, arousal_said: out.feel.arousal });
+    }
 
     if (agent.can("interest") && out.interest !== null && out.interest !== undefined) {
       const level = this.energy.reportInterest(out.interest);
@@ -356,6 +372,9 @@ export class Brain {
     this.lengthJudged = false;
     this.found = [];
     this.went = "";
+    this.asleep = new Set();
+    this.recruited = false;
+    this.mood = restore(await this.log.lastMood());
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
     const elapsed = () => round((performance.now() - t0) / 1000, 1);
@@ -366,6 +385,7 @@ export class Brain {
     try {
       const msg = this.bus.add(0, "inspiration", "input", this.question, { topic: INPUT_TOPIC });
       this.emit("input", null, { channel: "inspiration", text: this.question, recipients: this.bus.recipients(msg, this.subs()) });
+      this.emit("mood", null, { ...this.mood, why: "carried over" });
 
       if (this.ltm) {
         await this.ltm.seed(cfg.self); // a fresh brain gets its starting core beliefs
@@ -375,18 +395,24 @@ export class Brain {
         await this.recollect();
       } else this.self = cfg.self;
 
+      // the recruiting voice hears first, so only the voices the matter needs think about it
+      const recruiter = owner(cfg, "recruit");
+      if (recruiter && !this.recruited && Object.keys(cfg.recruit).length) await this.turn(this.agents.get(recruiter)!, 0);
+
       this.emit("energy", null, { level: this.energy.level });
       const reason = await this.think(t0);
       if (this.cancelled) throw new Cancelled();
       this.emit("phase", null, { phase: "wrapup", reason });
       const answer = await this.wrapup();
       if (this.cancelled) throw new Cancelled();
-      this.emit("session_end", null, { answer, seconds: elapsed() });
+      this.emit("session_end", null, { answer, seconds: elapsed(), mood: this.mood });
+      this.log.setMood(this.session, this.mood);
       this.log.endSession(this.session, answer, "done");
       return { session: this.session, answer };
     } catch (e) {
       if (isAbort(e) || this.cancelled) {
         this.emit("session_end", null, { answer: null, cancelled: true, seconds: elapsed() });
+        this.log.setMood(this.session, this.mood);
         this.log.endSession(this.session, null, "cancelled");
         return { session: this.session, answer: null };
       }
@@ -410,6 +436,23 @@ export class Brain {
     const [, out] = await this.turn(this.agents.get(gate)!, this.cycle, GATE);
     this.emit("verdict", gate, { verdict: out.verdict, reason: out.reason, version: this.draft.version, attempt: attempt + 1 });
     return out;
+  }
+
+  // --- who thinks about it ----------------------------------------------------
+  /** The recruiting voice named the kind of matter: the thinking voices the
+   * recruit table doesn't list for it (nor under "always") stay asleep. A voice
+   * in no list at all always thinks along. No kind: everyone. */
+  private recruit(agent: Agent, kind: string | null): void {
+    this.recruited = true;
+    const table = this.cfg.recruit;
+    if (!Object.keys(table).length) return;
+    const listed = new Set(Object.values(table).flat());
+    const awake = new Set([...(table.always ?? []), ...(kind ? table[kind] ?? [] : [...listed])]);
+    for (const a of this.agents.values()) {
+      if (a.spec.phase === "think" && listed.has(a.name) && !awake.has(a.name)) this.asleep.add(a.name);
+    }
+    const thinking = [...this.agents.values()].filter((a) => a.spec.phase === "think").map((a) => a.name);
+    this.emit("recruited", agent.name, { kind, awake: thinking.filter((n) => !this.asleep.has(n)), asleep: [...this.asleep] });
   }
 
   // --- how long to talk -----------------------------------------------------

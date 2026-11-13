@@ -29,6 +29,7 @@ export interface TurnContext {
   size?: string;   // how long the reply should be, once the Listener has judged it
   lengthNotes?: string; // for the Listener: how long the last reply was, how it went down, what it has learned
   found?: string[]; // what the brain has found out about itself (not yet core), for voices granted "self"
+  mood?: string;    // how the brain feels right now, for voices granted "self"
 }
 
 export type SuggestKind = "believe" | "interesting" | "self";
@@ -76,6 +77,8 @@ export interface Output {
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
   suggestion?: { kind: SuggestKind; text: string } | null;
   noticed?: string; // Recall: something the brain noticed about itself from how the thinking went
+  feel?: { word: string; valence: number; arousal: number } | null;
+  kind?: string | null; // the kind of question, which decides who joins
   keep?: { ref: number; reason: string; replaces: number | null }[];
   gist?: string;
 }
@@ -95,6 +98,11 @@ export class Agent {
 
   constructor(public spec: AgentSpec, private cfg: BrainConfig) {
     this.subs = new Set(spec.subscriptions);
+  }
+
+  /** The kinds of matter the recruiting voice can name (the recruit table, without "always"). */
+  kinds(): string[] {
+    return Object.keys(this.cfg.recruit ?? {}).filter((k) => k !== "always");
   }
 
   get name(): string {
@@ -174,6 +182,15 @@ export class Agent {
         "suggests about its length: 'too long' (e.g. 'in short', 'shorter', 'tl;dr', impatience), 'too short' " +
         "('tell me more', 'why?', 'go on', 'more detail'), 'fine', or 'no idea' (a new topic, or no sign either way).");
     }
+    if (this.can("feel")) {
+      lines.push("- Report how you feel right now in 'feeling' (one or two words), with 'valence' from -5 (very " +
+        "unpleasant) to 5 (very pleasant) and 'arousal' from 0 (calm, sleepy) to 10 (stirred up, excited). Your mood " +
+        "carries over from before: change it only as much as this really moves you.");
+    }
+    if (this.can("recruit") && this.kinds().length) {
+      lines.push("- Say in 'kind' what kind of matter this is: " + this.kinds().map((k) => `'${k}'`).join(", ") +
+        ". It decides who else thinks about it, so pick the closest.");
+    }
     if (this.can("recognise")) {
       lines.push("- Sometimes things come to mind, listed under 'Things that come to mind'. Judge each in 'recall' " +
         "by its number: 'unrelated'; 'reminds' (it only reminds you of the matter); or 'related' (the matter " +
@@ -209,6 +226,7 @@ export class Agent {
         "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n") +
         (ctx.found?.length ? "\nWhat they have found out about themself so far (likely, not certain):\n" +
           ctx.found.map((b) => `- ${b}`).join("\n") : "") +
+        (ctx.mood ? `\nRight now they feel ${ctx.mood}. It colours their tone and how they put things, never what is true.` : "") +
         "\nBeyond this they know nothing about what they are, where they are or what they are for. When the answer " +
         "touches on that, it says so or wonders aloud; it never fills the gap with assumptions (such as being an " +
         "assistant made to help).");
@@ -295,6 +313,16 @@ export class Agent {
       props.reply = { type: "string" };
       required.push("feeling", "energy", "pace", "timing", "reply");
     }
+    if (this.can("feel")) {
+      props.feeling = { type: "string" };
+      props.valence = { type: "integer", minimum: -5, maximum: 5 };
+      props.arousal = { type: "integer", minimum: 0, maximum: 10 };
+      required.push("feeling", "valence", "arousal");
+    }
+    if (this.can("recruit") && this.kinds().length) {
+      props.kind = { type: "string", enum: this.kinds() };
+      required.push("kind");
+    }
     if (this.can("size")) {
       props.size = { type: "string", enum: [...SIZES] };
       props.length_feedback = { type: "string", enum: [...LENGTH_FEEDBACK] };
@@ -365,6 +393,17 @@ export class Agent {
       const pick = <T extends readonly string[]>(x: unknown, ok: T) => (ok as readonly string[]).includes(str(x).toLowerCase()) ? str(x).toLowerCase() : "";
       out.mood = { feeling: one(data.feeling, 40), energy: pick(data.energy, ENERGY), pace: pick(data.pace, PACE), timing: one(data.timing, 120) };
       out.delivery = moodText(out.mood);
+    }
+    if (this.can("feel")) {
+      const n = (x: unknown) => (typeof x === "number" ? x : typeof x === "string" && /^\s*-?\d+\s*$/.test(x) ? Number(x) : NaN);
+      const v = n(data.valence), a = n(data.arousal);
+      out.feel = Number.isFinite(v) && Number.isFinite(a)
+        ? { word: str(data.feeling).replace(/\s+/g, " ").trim().slice(0, 30), valence: Math.max(-5, Math.min(5, v)), arousal: Math.max(0, Math.min(10, a)) }
+        : null;
+    }
+    if (this.can("recruit")) {
+      const k = str(data.kind).toLowerCase();
+      out.kind = this.kinds().includes(k) ? k : null;
     }
     if (this.can("size")) {
       const sz = str(data.size).toLowerCase(), fb = str(data.length_feedback).toLowerCase();
