@@ -3,6 +3,11 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.7.0 · 2026-11-13 · Something to say
+
+- In a conversation Norbert brings something of its own (a reaction, a thought, sometimes a question back) instead of handing your words back to you. Replies that only repeat what you said, or state the obvious, are sent back.
+- The critic stops sanding off lively details over harmless assumptions.
+
 ## 1.6.0 · 2026-11-13 · Speaking up uninvited
 
 - The Storyteller thinks about every question again: even a sum or a fact is easier to take in with one clear example.

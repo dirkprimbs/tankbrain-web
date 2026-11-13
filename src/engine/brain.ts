@@ -21,7 +21,8 @@ export const GATE =
   "Check the current draft against the matter at hand, reading it exactly as the listener will hear it. " +
   "Approve if it answers it well. Reject only for a real problem: it misses the question, contains a clear " +
   "error, makes unsupported claims (including assumptions about what the speaker is, where or what for), is badly overconfident, or doesn't read as one coherent answer (parts " +
-  "repeated, missing or out of order), or is clearly longer than the reply size calls for. " +
+  "repeated, missing or out of order), is clearly longer than the reply size calls for, or only hands the " +
+  "person's own words back to them without adding anything. " +
   "If you reject, say exactly what must change.";
 
 /** How many words a text has. */

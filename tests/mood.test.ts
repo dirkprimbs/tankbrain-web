@@ -101,3 +101,21 @@ describe("mood", () => {
     expect(label(BASELINE.valence, BASELINE.arousal)).toBe("curious");
   });
 });
+
+describe("recruit table", () => {
+  it("every kind recruits a working chain: what an awake voice posts reaches another awake voice", async () => {
+    const { cfg } = await fresh();
+    const thinking = [...cfg.agents.values()].filter((a) => a.phase === "think");
+    const listed = new Set(Object.values(cfg.recruit).flat());
+    for (const kind of Object.keys(cfg.recruit).filter((k) => k !== "always")) {
+      const awake = new Set([...cfg.recruit.always, ...cfg.recruit[kind], ...thinking.filter((a) => !listed.has(a.name)).map((a) => a.name)]);
+      // the Motivator's #mood is a side remark: its real output is the energy level
+      for (const a of thinking.filter((x) => awake.has(x.name) && x.name !== "Motivator")) {
+        for (const topic of a.posts_to) {
+          const readers = thinking.filter((r) => r.name !== a.name && awake.has(r.name) && r.subscriptions.includes(topic));
+          expect(readers.length, `${kind}: ${a.name} posts on #${topic} but nobody awake reads it`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
