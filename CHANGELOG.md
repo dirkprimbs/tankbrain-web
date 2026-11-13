@@ -3,6 +3,11 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.6.0 · 2026-11-13 · Speaking up uninvited
+
+- The Storyteller thinks about every question again: even a sum or a fact is easier to take in with one clear example.
+- Voices that weren't called for a question can still speak up. Once the first draft is written, each resting voice takes one look and joins if it has something that clearly makes the answer better. The stream shows who spoke up uninvited.
+
 ## 1.5.0 · 2026-11-13 · A mood of its own
 
 - Norbert has a mood. A new voice, the Feeler, notices how a question lands (how the asker seems to feel, how heavy or light the subject is) and how it feels about the answer. Its reactions move Norbert's mood, which colours the tone of the answer and how it is spoken. The mood is shown at the top and carries over to the next conversation, drifting back to curious over a few hours.

@@ -210,6 +210,11 @@ export class Stream {
             ? `⏻ a matter of kind "${d.kind}": ${d.awake.join(", ")} think about it${d.asleep.length ? `; ${d.asleep.join(", ")} rest` : ""}`
             : `⏻ no kind named: everyone thinks about it`);
         break;
+      case "initiative":
+        node = this.sys(e, `⏻ the resting voices look at the first draft: ` +
+          [d.spoke.length ? `${d.spoke.join(", ")} speak${d.spoke.length === 1 ? "s" : ""} up uninvited` : "",
+           d.silent.length ? `${d.silent.join(", ")} stay${d.silent.length === 1 ? "s" : ""} quiet` : ""].filter(Boolean).join("; "));
+        break;
       case "size":
         node = this.item(e, "post", "REPLY SIZE", `${d.size} (at most about ${d.words} words)`, "minor");
         break;

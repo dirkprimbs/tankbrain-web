@@ -13,6 +13,9 @@ import { DOUBT_SESSIONS, LENGTH_BELIEFS, LongTermMemory, REINFORCE, similarity, 
 import { MemoryPermissionError, WorkingMemory } from "./memory/working";
 import { salience, schedule } from "./scheduler";
 
+/** A resting voice's one chance to speak up uninvited, once the first draft is written. */
+export const INITIATIVE = "Nobody asked you to think about this matter, but you have heard about it. Speak up only " +
+  "if you have something that clearly makes the answer better; otherwise stay silent (empty lists).";
 export const WRAP_SIGNAL = "Time is nearly up. Only say what helps finish the answer now; otherwise stay silent.";
 export const GATE =
   "Check the current draft against the matter at hand, reading it exactly as the listener will hear it. " +
@@ -164,6 +167,7 @@ export class Brain {
   mood: MoodState = restore(null); // how the brain feels; carried over from the last session
   asleep = new Set<string>();      // thinking voices not recruited for this matter (a private message wakes them)
   private recruited = false;
+  private initiativeTaken = false; // the resting voices have had their look at the first draft
   private went = "";           // how the thinking went (for the Voice, and for Recall)
   followsUp: number | null = null; // the exchange this question follows up on, if any
   self: string[] = [];             // the core beliefs, for the voices granted "self"
@@ -374,6 +378,7 @@ export class Brain {
     this.went = "";
     this.asleep = new Set();
     this.recruited = false;
+    this.initiativeTaken = false;
     this.mood = restore(await this.log.lastMood());
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
@@ -453,6 +458,26 @@ export class Brain {
     }
     const thinking = [...this.agents.values()].filter((a) => a.spec.phase === "think").map((a) => a.name);
     this.emit("recruited", agent.name, { kind, awake: thinking.filter((n) => !this.asleep.has(n)), asleep: [...this.asleep] });
+  }
+
+  /** Once the first draft is written, each resting voice takes one look and may
+   * speak up uninvited; one that does is awake from then on. Returns the fresh posts. */
+  private async initiative(cycle: number): Promise<number> {
+    this.initiativeTaken = true;
+    const resting = [...this.asleep].map((n) => this.agents.get(n)!).filter(Boolean);
+    if (!resting.length) return 0;
+    const looks = await Promise.all(resting.map((a) => this.sem.run(async () => [a, await this.turn(a, cycle, INITIATIVE)] as const)));
+    const spoke: string[] = [], silent: string[] = [];
+    let fresh = 0;
+    for (const [a, [n, out]] of looks) {
+      if (out.posts.length || out.messages.length) {
+        spoke.push(a.name);
+        this.asleep.delete(a.name);
+        fresh += n;
+      } else silent.push(a.name);
+    }
+    this.emit("initiative", null, { spoke, silent });
+    return fresh;
   }
 
   // --- how long to talk -----------------------------------------------------
@@ -683,6 +708,7 @@ export class Brain {
       this.emit("cycle", null, { n: cycle, ready: ready.map(([a]) => a.name) });
       const order = schedule(ready, this.loadedModel, maxTurns);
       const results = await Promise.all(order.map((a) => this.sem.run(async () => (await this.turn(a, cycle))[0])));
+      if (this.draft.version > 0 && !this.initiativeTaken) results.push(await this.initiative(cycle));
       const level = this.energy.tick(results.reduce((s, x) => s + x, 0));
       this.emit("energy", null, { level: round(level, 3), cycle });
       if (this.energy.exhausted && cycle >= minCycles) return "interest faded";

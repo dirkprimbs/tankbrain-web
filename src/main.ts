@@ -268,6 +268,11 @@ function handle(e: TankEvent) {
       showMood(d);
       if (e.agent) scene.flash(e.agent, 0.9);
       break;
+    case "initiative":
+      for (const n of d.spoke ?? []) resting.delete(n);
+      scene.setResting(resting);
+      for (const n of d.spoke ?? []) scene.flash(n, 1);
+      break;
     case "recruited":
       if (d.woken) resting.delete(d.woken);
       else resting = new Set(d.asleep ?? []);

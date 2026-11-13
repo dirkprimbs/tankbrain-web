@@ -7,14 +7,13 @@ import { fresh, scripted, who } from "./helpers";
 
 /** The 17 * 3 script, with the Listener naming a kind and the Feeler feeling something. */
 function script(opts: { kind?: string; feel?: { feeling: string; valence: number; arousal: number }; prompts?: Record<string, string[]>;
-                        dmAssociator?: boolean }) {
+}) {
   return (system: string, user: string) => {
     const out = scripted(system, user);
     const name = who(system);
     opts.prompts && (opts.prompts[name] ??= []).push(user);
     if (name === "Listener" && opts.kind) out.kind = opts.kind;
     if (name === "Feeler" && opts.feel) Object.assign(out, opts.feel);
-    if (name === "Curator" && opts.dmAssociator) out.messages = [{ to: "Associator", text: "Any odd angle on 17?" }];
     return out;
   };
 }
@@ -28,20 +27,32 @@ describe("recruiting", () => {
     const rec = events.find((e) => e.kind === "recruited")!;
     expect(rec.agent).toBe("Listener");
     expect(rec.data.kind).toBe("calculation");
-    expect(rec.data.asleep).toEqual(expect.arrayContaining(["Associator", "Inventor", "Curator", "Storyteller", "Coordinator"]));
-    expect(rec.data.awake).toEqual(expect.arrayContaining(["Listener", "Drafter", "Critic", "Logician", "Feeler"]));
+    expect(rec.data.asleep).toEqual(expect.arrayContaining(["Associator", "Inventor", "Curator", "Coordinator"]));
+    expect(rec.data.awake).toEqual(expect.arrayContaining(["Listener", "Drafter", "Critic", "Logician", "Feeler", "Storyteller"]));
     // the Listener went before cycle 1, and the resting voices never took a turn
     const firstCycle = events.findIndex((e) => e.kind === "cycle");
     expect(events.findIndex((e) => e.kind === "turn_start" && e.agent === "Listener")).toBeLessThan(firstCycle);
-    for (const v of ["Associator", "Inventor", "Storyteller"]) expect(prompts[v]).toBeUndefined();
+    // once the first draft is there, each resting voice gets one look: the Associator and Curator (scripted to
+    // always post) speak up and stay awake, the Inventor and Coordinator (silent) go back to resting
+    expect(prompts.Inventor).toHaveLength(1);
+    expect(prompts.Inventor[0]).toContain("Nobody asked you");
+    const init = events.find((e) => e.kind === "initiative")!;
+    expect(init.data.spoke.sort()).toEqual(["Associator", "Curator"]);
+    expect(init.data.silent.sort()).toEqual(["Coordinator", "Inventor"]);
+    expect(events.findIndex((e) => e.kind === "draft")).toBeLessThan(events.indexOf(init));
+    expect(events.filter((e) => e.kind === "initiative")).toHaveLength(1);
     expect(res.answer).toBeTruthy();
 
-    // an explanation: the Curator thinks along but the Associator rests, until the Curator writes to it
-    const res2 = await new Brain(cfg, new FakeLLM(script({ kind: "explanation", dmAssociator: true })), log, ltm).run("Why 51?");
-    const ev2 = await log.events(res2.session);
-    expect(ev2.find((e) => e.kind === "recruited" && e.data.kind)!.data.asleep).toContain("Associator");
-    expect(ev2.find((e) => e.kind === "recruited" && e.data.woken)!.data).toEqual({ woken: "Associator", by: "Curator" });
-    expect(ev2.some((e) => e.kind === "turn_start" && e.agent === "Associator")).toBe(true);
+    // a private message wakes a resting voice (a turn-level check: in a full session the resting voice
+    // usually reads it during its look at the first draft already)
+    const b = new Brain(cfg, new FakeLLM(script({})), log, ltm);
+    b.agents = new Map([...cfg.agents].map(([n, sp]) => [n, new Agent(sp, cfg)]));
+    b.asleep.add("Associator");
+    b.bus.add(1, "Curator", "post", "17 is prime.", { topic: "ideas" });
+    expect((b as any).ready(2)[0].some(([a]: [Agent]) => a.name === "Associator")).toBe(false);
+    b.bus.add(1, "Curator", "dm", "Any odd angle on 17?", { to: "Associator" });
+    expect((b as any).ready(2)[0].some(([a]: [Agent]) => a.name === "Associator")).toBe(true);
+    expect(b.asleep.has("Associator")).toBe(false);
   });
 
   it("asks for a kind from the recruit table; the Coordinator no longer gives orders", async () => {

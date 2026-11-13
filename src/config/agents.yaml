@@ -48,19 +48,23 @@ cycle:
 
 # Who thinks about what. The Listener names the kind of matter; the thinking
 # voices listed for it, and those under "always", join. Listed voices not named
-# for this kind stay asleep unless someone sends them a private message; voices
-# in no list always think along. (Like a brain recruiting the networks a task needs.)
+# for this kind rest: they wake when someone sends them a private message, and
+# once the first draft is written each may speak up uninvited if it has
+# something that clearly helps. Voices in no list always think along. (Like a
+# brain recruiting the networks a task needs, while others can still capture
+# attention.) The Storyteller is always there: how an answer lands matters for
+# every answer, and for a fact or a sum it only suggests one clear example.
 recruit:
-  always: [Listener, Drafter, Critic, Motivator, Feeler]
+  always: [Listener, Drafter, Critic, Motivator, Feeler, Storyteller]
   fact: [Logician]
   calculation: [Logician]
   puzzle: [Logician, Associator, Coordinator]
-  explanation: [Logician, Inventor, Curator, Storyteller]
-  story: [Associator, Inventor, Curator, Storyteller]
-  ideas: [Associator, Inventor, Curator, Storyteller, Coordinator]
-  advice: [Associator, Curator, Storyteller, Coordinator]
+  explanation: [Logician, Inventor, Curator]
+  story: [Associator, Inventor, Curator]
+  ideas: [Associator, Inventor, Curator, Coordinator]
+  advice: [Associator, Curator, Coordinator]
   opinion: [Associator, Curator, Logician]
-  conversation: [Storyteller]
+  conversation: []
   about me: [Associator, Curator]
 
 energy:
