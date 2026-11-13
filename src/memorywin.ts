@@ -1,10 +1,9 @@
-// The long-term memory, to look at: who Norbert is (core beliefs), what it has
-// found out about itself, what it has learned about you, what it believes and
-// finds interesting, and the conversations it remembers. For looking only:
-// nothing here changes what the brain remembers.
+// The long-term memory, to look at: who Norbert is (core beliefs), what it
+// believes and finds interesting, and the conversations it remembers. For
+// looking only: nothing here changes what the brain remembers.
 
 import * as api from "./api";
-import { CAPACITY, LENGTH_BELIEFS, PROMOTE_SESSIONS, PROMOTE_WEIGHT, type Memory } from "./engine/memory/longterm";
+import { CAPACITY, type Memory } from "./engine/memory/longterm";
 
 type Row = Omit<Memory, "embedding">;
 
@@ -14,7 +13,6 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text?: strin
   if (text !== undefined) e.textContent = text;
   return e;
 };
-const LENGTH = new Set<string>(Object.values(LENGTH_BELIEFS));
 const day = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10);
 
 interface Section {
@@ -60,32 +58,15 @@ export class MemoryWindow {
     const all: Row[] = await api.memoryList();
     this.count.textContent = `${all.length} of at most ${CAPACITY}`;
     const of = (pred: (m: Row) => boolean) => all.filter(pred).sort((a, b) => b.weight - a.weight);
-    const core = all.filter((m) => m.pinned).sort((a, b) => a.id - b.id);
     const sections: Section[] = [
-      { title: "WHO I AM", rows: core, empty: "",
-        note: "Core beliefs: they never fade. Some were given at the start, others grew from what Norbert found out " +
-          "about itself. One changes only after careful reconsidering, and only once it has been questioned in more than one conversation.",
+      { title: "WHO I AM", rows: all.filter((m) => m.pinned).sort((a, b) => a.id - b.id), empty: "",
+        note: "Core beliefs: they never fade. One changes only after careful reconsidering, and only once it has " +
+          "been questioned in more than one conversation.",
         detail: (m) => [
-          m.promoted ? `found out, became a core belief on ${day(m.promoted)}${m.context ? ` (first when asked "${m.context}")` : ""}`
-            : m.seeded && m.seeded !== m.text ? `changed from "${m.seeded}"` : "given at the start",
+          m.seeded && m.seeded !== m.text ? `changed from "${m.seeded}"` : "",
           m.doubts.length ? `questioned ${m.doubts.length}× (latest: "${m.doubts.at(-1)!.text}")` : "",
         ].filter(Boolean).join(" · ") },
-      { title: "FOUND OUT ABOUT MYSELF", rows: of((m) => m.kind === "self" && !m.pinned),
-        empty: "nothing yet: Norbert starts out knowing very little about itself",
-        note: `Things Norbert has found out about itself: told, noticed or worked out. They are likely, not certain. One that ` +
-          `holds up in ${PROMOTE_SESSIONS} separate conversations and grows strong enough (${PROMOTE_WEIGHT}) is weighed ` +
-          `for becoming a core belief.`,
-        detail: (m) => [
-          `held up in ${m.seen.length} of ${PROMOTE_SESSIONS} conversations`,
-          m.considered ? `weighed for core at ${m.considered}, not yet` : "",
-          m.context ? `first when asked "${m.context}"` : "",
-          m.from.length ? `by ${m.from.join(", ")}` : "",
-        ].filter(Boolean).join(" · ") },
-      { title: "ABOUT YOU", rows: of((m) => LENGTH.has(m.text)),
-        empty: "nothing yet: stop the spoken reply, or ask for less or more, and Norbert learns how much you like to hear",
-        note: "What Norbert has learned about how much you want to hear. The Listener uses it to judge how long a reply should be.",
-        detail: (m) => `confirmed ${m.uses}×` },
-      { title: "WHAT I BELIEVE", rows: of((m) => m.kind === "believe" && !m.pinned && !LENGTH.has(m.text)), empty: "nothing yet",
+      { title: "WHAT I BELIEVE", rows: of((m) => m.kind === "believe" && !m.pinned), empty: "nothing yet",
         note: "", detail: (m) => (m.context ? `from when asked "${m.context}"` : "") },
       { title: "WHAT I FIND INTERESTING", rows: of((m) => m.kind === "interesting"), empty: "nothing yet",
         note: "", detail: (m) => (m.context ? `from when asked "${m.context}"` : "") },

@@ -3,6 +3,11 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.9.0 · 2026-11-13 · Back to basics
+
+- Norbert thinks the way it did in 1.1 again. The changes from 1.2 to 1.8 (reply sizes, the Feeler and mood, recruiting voices, self-discovery, curiosity, the voice's moods) added up to replies that were less clear, so they are out until each can be tried on its own.
+- Kept: Bluetooth headsets no longer swallow the first words; ■ stop silences the whole reply; export/import of voice settings; the long-term memory in its own window (◉ MEMORY).
+
 ## 1.8.1 · 2026-11-13 · Said so you can follow it
 
 - Fixed: replies could turn into dense, riddling shorthand when the voices kept swapping in new ideas. Norbert now writes for someone hearing it once: plain words, one idea told well, no leftovers from its inner discussion. A reply that can't be followed is sent back.

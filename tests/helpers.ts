@@ -13,8 +13,6 @@ export function scripted(system: string, user: string): Record<string, any> {
   const base: Record<string, any> = { thought: `${name} thinking`, posts: [], messages: [] };
   if (name === "Listener") {
     base.posts = [{ topic: "focus", text: "They want 17 * 3." }];
-    base.size = "a sentence";
-    base.length_feedback = "no idea";
     // whatever comes to mind first is what this follows up on
     if (user.includes("## Things that come to mind")) base.recall = [{ ref: 1, judgement: "related" }];
   } else if (name === "Associator") {
@@ -36,7 +34,7 @@ export function scripted(system: string, user: string): Record<string, any> {
   } else if (name === "Critic") base.posts = [{ topic: "critique", text: "Show the working." }];
   else if (name === "Motivator") base.interest = 1;
   else if (name === "Inhibitor") Object.assign(base, { verdict: "approve", reason: "Correct." });
-  else if (name === "Voice") Object.assign(base, { feeling: "pleased", energy: "medium", pace: "steady", timing: "", reply: "It's 51." });
+  else if (name === "Voice") base.reply = "It's 51.";
   else if (name === "Recall") {
     base.keep = user.includes("[1]") ? [{ ref: 1, reason: "a curious fact" }] : [];
     base.gist = "Asked what 17 times 3 is: it equals 51.";

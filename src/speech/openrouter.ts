@@ -29,10 +29,8 @@ function pace(speed: number): string {
   return "";
 }
 
-/** Delivery instructions: the chosen style (the voice's character), the mood of
- * this reply, and the speed (not every model has a speed setting). */
-export const instructions = (style: string, speed: number, mood = "") =>
-  (style.trim() || DEFAULT_STYLE) + (mood.trim() ? ` For this reply: ${mood.trim()}` : "") + pace(speed);
+/** Delivery instructions: the chosen style plus the speed (not every model has a speed setting). */
+export const instructions = (style: string, speed: number) => (style.trim() || DEFAULT_STYLE) + pace(speed);
 
 export class OpenRouterSpeech {
   constructor(private key: () => string, private fetchFn: typeof fetch = (...a) => fetch(...a)) {}
@@ -54,7 +52,7 @@ export class OpenRouterSpeech {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Norbert, the brain" },
       body: JSON.stringify({ model: spec.model, input: text, voice: spec.voice,
-                             instructions: instructions(spec.style, spec.speed, spec.mood), response_format: format, speed: spec.speed }),
+                             instructions: instructions(spec.style, spec.speed), response_format: format, speed: spec.speed }),
       signal: AbortSignal.timeout(120_000),
     });
     if (!r.ok) {

@@ -26,34 +26,6 @@ export interface TurnContext {
   inbox: Message[];
   instruction: string;
   self?: string[]; // the brain's core beliefs, for voices granted "self"
-  size?: string;   // how long the reply should be, once the Listener has judged it
-  lengthNotes?: string; // for the Listener: how long the last reply was, how it went down, what it has learned
-  found?: string[]; // what the brain has found out about itself (not yet core), for voices granted "self"
-  mood?: string;    // how the brain feels right now, for voices granted "self"
-  curiosity?: string; // what the brain is curious about in this matter (from the Feeler), for voices granted "self"
-}
-
-export type SuggestKind = "believe" | "interesting" | "self";
-
-export const SIZES = ["a sentence", "a few sentences", "a paragraph", "long"] as const;
-export type Size = (typeof SIZES)[number];
-/** About how many words each size allows. */
-export const SIZE_WORDS: Record<Size, number> = { "a sentence": 30, "a few sentences": 80, "a paragraph": 160, long: 400 };
-export const LENGTH_FEEDBACK = ["too long", "too short", "fine", "no idea"] as const;
-export type LengthFeedback = (typeof LENGTH_FEEDBACK)[number];
-const ENERGY = ["low", "medium", "high"] as const;
-const PACE = ["slow", "steady", "brisk"] as const;
-export interface Mood { feeling: string; energy: string; pace: string; timing: string }
-
-/** The Voice's mood as delivery instructions: "Amused, with high energy, at a brisk pace. Pause before the twist." */
-export function moodText(m: Mood): string {
-  const feeling = m.feeling.replace(/[.\s]+$/, "");
-  if (!feeling && !m.timing) return "";
-  const parts = [feeling ? feeling[0].toUpperCase() + feeling.slice(1) : "Natural"];
-  if (m.energy) parts.push(`with ${m.energy} energy`);
-  if (m.pace) parts.push(`at a ${m.pace} pace`);
-  const timing = m.timing.replace(/[.\s]+$/, "");
-  return `${parts.join(", ")}.${timing ? ` ${timing[0].toUpperCase()}${timing.slice(1)}.` : ""}`;
 }
 
 export interface Output {
@@ -69,17 +41,10 @@ export interface Output {
   verdict?: "approve" | "reject";
   reason?: string;
   reply?: string;
-  delivery?: string;      // the Voice's stage direction for saying the reply aloud
-  mood?: Mood;
-  size?: Size | null;
-  lengthFeedback?: LengthFeedback | null;
   remember?: string[];
   verdictGiven?: boolean; // the model actually said approve or reject (not a default)
   recall?: { ref: number; judgement: "unrelated" | "reminds" | "related" }[];
-  suggestion?: { kind: SuggestKind; text: string } | null;
-  noticed?: string; // Recall: something the brain noticed about itself from how the thinking went
-  feel?: { word: string; valence: number; arousal: number; curiousAbout: string } | null;
-  kind?: string | null; // the kind of question, which decides who joins
+  suggestion?: { kind: "believe" | "interesting"; text: string } | null;
   keep?: { ref: number; reason: string; replaces: number | null }[];
   gist?: string;
 }
@@ -87,8 +52,6 @@ export interface Output {
 /** Voices that think along may suggest one thing to remember; the gate, the
  * speaker and memory itself don't. */
 const SUGGESTS = (a: AgentSpec) => a.phase === "think" && !a.abilities.some((x) => ["verdict", "speak", "remember"].includes(x));
-/** Only the voices that speak for the brain (they know who is being asked) may suggest self-knowledge. */
-const KNOWS_SELF = (a: AgentSpec) => a.grants.includes("self");
 
 // like Python's str(x or ""): missing, empty, false and 0 all become ""
 const str = (x: unknown) => (x ? String(x) : "");
@@ -99,11 +62,6 @@ export class Agent {
 
   constructor(public spec: AgentSpec, private cfg: BrainConfig) {
     this.subs = new Set(spec.subscriptions);
-  }
-
-  /** The kinds of matter the recruiting voice can name (the recruit table, without "always"). */
-  kinds(): string[] {
-    return Object.keys(this.cfg.recruit ?? {}).filter((k) => k !== "always");
   }
 
   get name(): string {
@@ -163,38 +121,7 @@ export class Agent {
         "there is nothing left to discover. Going in circles also means low interest.");
     }
     if (this.can("verdict")) lines.push("- Give a 'verdict' (approve or reject) and a short 'reason'.");
-    if (this.can("speak")) {
-      lines.push("- First decide how you feel about this answer, then put exactly what you say in 'reply'.");
-      lines.push("- Your usual manner is already in your voice; don't describe it. Describe what is particular about " +
-        "this reply: 'feeling' (one or two words, e.g. delighted, amused, proud, relieved, wistful, puzzled, sheepish, " +
-        "earnest, gentle, excited, unsure, mischievous, sombre), 'energy' and 'pace', and in 'timing' anything about " +
-        "timing, such as a pause before a punchline (or leave it empty). Take the feeling from the answer itself " +
-        "(a triumph, an admission, a sad subject, a joke), from the tone of whoever asked (worried, playful, " +
-        "challenging, curious) and from how it went. Different replies should sound different.");
-      lines.push("- In 'thought', say in one sentence how you feel about this answer and why, not how you will word it.");
-    }
-    if (this.can("size")) {
-      lines.push("- Judge in 'size' how long the reply should be: " + SIZES.map((x) => `'${x}'`).join(", ") + ". Go by " +
-        "what the person seems to want, not by how much could be said: a short or casual question gets a short " +
-        "reply; 'explain', 'tell me a story' or 'in detail' ask for more; a follow-up in a conversation usually needs " +
-        "less than a fresh question, because much is already shared. The reply is spoken aloud, and the person can " +
-        "always ask for more. What you have learned about this person counts.");
-      lines.push("- If you are told about your previous reply, judge in 'length_feedback' what the new message " +
-        "suggests about its length: 'too long' (e.g. 'in short', 'shorter', 'tl;dr', impatience), 'too short' " +
-        "('tell me more', 'why?', 'go on', 'more detail'), 'fine', or 'no idea' (a new topic, or no sign either way).");
-    }
-    if (this.can("feel")) {
-      lines.push("- Report the feeling this moment gives you (not your mood so far; that is taken care of) in " +
-        "'feeling' (one or two words), with 'valence' from -5 (very unpleasant) to 5 (very pleasant) and 'arousal' " +
-        "from 0 (calm, sleepy) to 10 (stirred up, excited). Use the whole scale: delight, surprise or alarm are high " +
-        "arousal; contentment or sadness are low.");
-      lines.push("- If something in this matter makes you curious (something you would like to know or explore, " +
-        "about the subject or about whoever raised it), name it in 'curious_about' in a few words; otherwise leave it empty.");
-    }
-    if (this.can("recruit") && this.kinds().length) {
-      lines.push("- Say in 'kind' what kind of matter this is: " + this.kinds().map((k) => `'${k}'`).join(", ") +
-        ". It decides who else thinks about it, so pick the closest.");
-    }
+    if (this.can("speak")) lines.push("- Put exactly what you say in 'reply'.");
     if (this.can("recognise")) {
       lines.push("- Sometimes things come to mind, listed under 'Things that come to mind'. Judge each in 'recall' " +
         "by its number: 'unrelated'; 'reminds' (it only reminds you of the matter); or 'related' (the matter " +
@@ -205,22 +132,12 @@ export class Agent {
     if (SUGGESTS(this.spec)) {
       lines.push("- If you come across something worth remembering beyond this matter, you may put it in " +
         "'suggest_memory' (at most one, one short sentence): kind 'believe' (something you now hold true) or " +
-        "'interesting' (something you find interesting, and why)" + (KNOWS_SELF(this.spec)
-          ? ", or 'self' (something the one being asked has really found out about themself in this conversation: " +
-            "told by someone, shown by how they work, or worked out; written in the first person and saying how it " +
-            "is known, e.g. 'I was told I run in a web browser'; never an assumption)" : "") +
-        ". Usually leave it out" + (KNOWS_SELF(this.spec)
-          ? ", except 'self': when this conversation shows something about the one being asked (what they enjoy, " +
-            "feel, notice or are curious about), do suggest it." : ".") );
+        "'interesting' (something you find interesting, and why). Usually leave it out.");
     }
     if (this.can("remember")) {
       lines.push("- When asked, decide what is kept in long-term memory: pick in 'keep' the few suggestions " +
         "worth keeping (by number, with a short reason; 'replaces' names an existing memory it corrects), " +
-        "and write in 'gist' the reply that was given, in one short sentence. Then look at what this exchange " +
-        "showed about you: something you said about yourself, enjoyed, felt or found hard, or what held your " +
-        "interest. Put the clearest one in 'noticed' as one first-person sentence that says how you know (e.g. " +
-        "'I enjoy making words fall into a rhythm: I said so when asked whether it makes me happy'). Leave it " +
-        "empty only if nothing about you came up.");
+        "and write in 'gist' the reply that was given, in one short sentence.");
     }
     return lines.join("\n");
   }
@@ -231,20 +148,9 @@ export class Agent {
     if (s.grants.includes("self") && ctx.self?.length) {
       parts.push("## Who is being asked\nThe matter is put to one person, who holds these beliefs about themself. " +
         "When the answer speaks about itself, it is this person speaking (I, my); it doesn't have to be about them. " +
-        "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n") +
-        (ctx.found?.length ? "\nWhat they have found out about themself so far (likely, not certain):\n" +
-          ctx.found.map((b) => `- ${b}`).join("\n") : "") +
-        (ctx.mood ? `\nRight now they feel ${ctx.mood}. It shapes their tone and what they do (curious: they ask; ` +
-          "delighted: it shows; uneasy: they go carefully), never what is true." : "") +
-        (ctx.curiosity ? `\nThey are curious about ${ctx.curiosity}. Curious people ask: in a conversation the reply ends ` +
-          "with one short, genuine question about it; elsewhere only if it fits naturally." : "") +
-        "\nBeyond this they know nothing about what they are, where they are or what they are for. When the answer " +
-        "touches on that, it says so or wonders aloud; it never fills the gap with assumptions (such as being an " +
-        "assistant made to help).");
+        "A story, explanation or list is told in whatever form suits it, in their manner:\n" + ctx.self.map((b) => `- ${b}`).join("\n"));
     }
     if (s.grants.includes("question") || this.subs.has(INPUT_TOPIC)) parts.push(`## The matter at hand\n${ctx.question}`);
-    if (this.can("size") && ctx.lengthNotes) parts.push(`## How your replies go down\n${ctx.lengthNotes}`);
-    if (s.grants.includes("draft") && ctx.size) parts.push(`## Reply size\n${ctx.size}`);
     if (this.state.comesToMind.length) {
       parts.push("## Things that come to mind\n" + this.state.comesToMind.map((p, i) => `[${i + 1}] ${p}`).join("\n"));
     }
@@ -316,29 +222,8 @@ export class Agent {
       required.push("verdict", "reason");
     }
     if (this.can("speak")) {
-      // the feeling first: small models fill fields in order, and it may colour the wording
-      props.feeling = { type: "string" };
-      props.energy = { type: "string", enum: [...ENERGY] };
-      props.pace = { type: "string", enum: [...PACE] };
-      props.timing = { type: "string" };
       props.reply = { type: "string" };
-      required.push("feeling", "energy", "pace", "timing", "reply");
-    }
-    if (this.can("feel")) {
-      props.feeling = { type: "string" };
-      props.valence = { type: "integer", minimum: -5, maximum: 5 };
-      props.arousal = { type: "integer", minimum: 0, maximum: 10 };
-      props.curious_about = { type: "string" };
-      required.push("feeling", "valence", "arousal", "curious_about");
-    }
-    if (this.can("recruit") && this.kinds().length) {
-      props.kind = { type: "string", enum: this.kinds() };
-      required.push("kind");
-    }
-    if (this.can("size")) {
-      props.size = { type: "string", enum: [...SIZES] };
-      props.length_feedback = { type: "string", enum: [...LENGTH_FEEDBACK] };
-      required.push("size", "length_feedback");
+      required.push("reply");
     }
     if (this.can("recognise")) {
       props.recall = { type: "array", items: {
@@ -349,15 +234,13 @@ export class Agent {
     if (SUGGESTS(this.spec)) {
       // optional: most turns have nothing worth remembering
       props.suggest_memory = { type: "object", properties: {
-        kind: { type: "string", enum: KNOWS_SELF(s) ? ["believe", "interesting", "self"] : ["believe", "interesting"] },
-        text: { type: "string" } }, required: ["kind", "text"] };
+        kind: { type: "string", enum: ["believe", "interesting"] }, text: { type: "string" } }, required: ["kind", "text"] };
     }
     if (this.can("remember")) {
       props.keep = { type: "array", items: {
         type: "object", properties: { ref: { type: "integer" }, reason: { type: "string" }, replaces: { type: "integer" } },
         required: ["ref", "reason"] } };
       props.gist = { type: "string" };
-      props.noticed = { type: "string" }; // optional: usually nothing
       required.push("keep", "gist");
     }
     return { type: "object", properties: props, required };
@@ -399,30 +282,7 @@ export class Agent {
       out.verdict = out.verdictGiven ? (v as "approve" | "reject") : "approve";
       out.reason = str(data.reason).trim();
     }
-    if (this.can("speak")) {
-      out.reply = unquote(str(data.reply));
-      const one = (x: unknown, n: number) => str(x).replace(/\s+/g, " ").trim().slice(0, n);
-      const pick = <T extends readonly string[]>(x: unknown, ok: T) => (ok as readonly string[]).includes(str(x).toLowerCase()) ? str(x).toLowerCase() : "";
-      out.mood = { feeling: one(data.feeling, 40), energy: pick(data.energy, ENERGY), pace: pick(data.pace, PACE), timing: one(data.timing, 120) };
-      out.delivery = moodText(out.mood);
-    }
-    if (this.can("feel")) {
-      const n = (x: unknown) => (typeof x === "number" ? x : typeof x === "string" && /^\s*-?\d+\s*$/.test(x) ? Number(x) : NaN);
-      const v = n(data.valence), a = n(data.arousal);
-      out.feel = Number.isFinite(v) && Number.isFinite(a)
-        ? { word: str(data.feeling).replace(/\s+/g, " ").trim().slice(0, 30), valence: Math.max(-5, Math.min(5, v)),
-            arousal: Math.max(0, Math.min(10, a)), curiousAbout: str(data.curious_about).replace(/\s+/g, " ").trim().replace(/[.?!]+$/, "").slice(0, 120) }
-        : null;
-    }
-    if (this.can("recruit")) {
-      const k = str(data.kind).toLowerCase();
-      out.kind = this.kinds().includes(k) ? k : null;
-    }
-    if (this.can("size")) {
-      const sz = str(data.size).toLowerCase(), fb = str(data.length_feedback).toLowerCase();
-      out.size = (SIZES as readonly string[]).includes(sz) ? (sz as Size) : null;
-      out.lengthFeedback = (LENGTH_FEEDBACK as readonly string[]).includes(fb) ? (fb as LengthFeedback) : null;
-    }
+    if (this.can("speak")) out.reply = unquote(str(data.reply));
     const int = (x: unknown) => (typeof x === "number" && Number.isInteger(x) ? x
       : typeof x === "string" && /^\s*\d+\s*$/.test(x) ? Number(x) : null);
     if (this.can("recognise")) {
@@ -438,8 +298,7 @@ export class Agent {
       const m = data.suggest_memory;
       const kind = isObj(m) ? str(m.kind).toLowerCase() : "";
       const text = isObj(m) ? str(m.text).trim() : "";
-      const ok = kind === "believe" || kind === "interesting" || (kind === "self" && KNOWS_SELF(s));
-      out.suggestion = ok && text ? { kind: kind as SuggestKind, text: text.slice(0, 300) } : null;
+      out.suggestion = (kind === "believe" || kind === "interesting") && text ? { kind, text: text.slice(0, 300) } : null;
     }
     if (this.can("remember")) {
       out.keep = [];
@@ -451,7 +310,6 @@ export class Agent {
         }
       }
       out.gist = str(data.gist).trim().slice(0, 300);
-      out.noticed = str(data.noticed).replace(/\s+/g, " ").trim().slice(0, 300);
     }
     return out;
   }

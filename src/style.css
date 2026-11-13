@@ -57,13 +57,6 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .stat { display: flex; flex-direction: column; font-family: var(--mono); }
 .stat label { font-size: 9.5px; letter-spacing: 0.2em; color: var(--dim); }
 .stat b { font-weight: 400; color: var(--text); font-size: 14px; }
-.stat.mood b { display: flex; align-items: center; gap: 6px; white-space: nowrap; max-width: 130px; }
-#mood-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: hsl(var(--hue, 70) 95% 60%);
-  box-shadow: 0 0 8px hsl(var(--hue, 70) 95% 60%); animation: mood-pulse var(--speed, 1.8s) ease-in-out infinite; }
-#mood { overflow: hidden; text-overflow: ellipsis; }
-@keyframes mood-pulse { 50% { opacity: .45; transform: scale(.8); } }
-.hud { min-width: 0; }
-.stat.wide { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .stat.wide b { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lime); }
 .stat.energy { flex-direction: row; align-items: center; gap: 8px; }
 .stat.energy label { writing-mode: horizontal-tb; }
@@ -260,7 +253,6 @@ button.configure:hover { background: rgba(0,229,255,.08); border-color: var(--cy
 .editor-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); }
 .editor-foot .primary { flex: 0 0 auto; padding: 7px 22px; }
 .profile-name { background: rgba(0,10,25,.8); border: 1px solid var(--line); padding: 6px 8px; font-family: var(--mono); width: 170px; }
-.msg .delivery { font-family: var(--body); font-style: italic; font-size: 12.5px; color: var(--dim); margin-top: 4px; }
 .editor-files { margin-left: auto; display: flex; gap: 6px; }
 .editor-status { font-family: var(--mono); font-size: 12px; color: var(--dim); }
 .editor-status.error { color: #ff5c8a; }
@@ -378,6 +370,3 @@ optgroup { font-family: var(--mono); font-style: normal; color: var(--dim); }
 .changelog ul { margin: 0 0 8px; padding-left: 20px; }
 .changelog li { margin: 0 0 5px; }
 .changelog .row { margin-top: 12px; }
-
-/* voices not recruited for the matter at hand rest */
-.region-label.resting { opacity: .35; }

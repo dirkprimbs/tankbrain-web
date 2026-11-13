@@ -277,15 +277,6 @@ export class TankScene {
     }
   }
 
-  /** Voices not recruited for this matter rest: shown faded until something wakes them. */
-  setResting(resting: Set<string>) {
-    for (const r of this.regions.values()) {
-      const rest = resting.has(r.agent.name);
-      r.label.element.classList.toggle("resting", rest);
-      (r.node.material as THREE.SpriteMaterial).opacity = rest ? 0.35 : r.label.element.classList.contains("off") ? 0.25 : 1;
-    }
-  }
-
   activate(agent: string, on: boolean, loading = false) {
     const r = this.regions.get(agent);
     if (!r) return;

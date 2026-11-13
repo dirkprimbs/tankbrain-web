@@ -13,8 +13,6 @@ export interface SessionRow {
   status: string;
   ended: number | null;
   alive?: number; // last sign of life while running (another tab may be running it)
-  stopped?: { heard: number; of: number }; // the person stopped the spoken reply after `heard` of `of` parts
-  mood?: { valence: number; arousal: number; word: string; at: number }; // how the brain felt when it ended
 }
 
 export interface EventRow {
@@ -48,9 +46,6 @@ export interface MemoryRow {
   pinned?: boolean;        // a core belief: never fades or is forgotten, changes only after reconsidering
   seeded?: string;         // a core belief's starting text, from the config's self list
   doubts?: Doubt[];        // for a core belief: the times it was questioned
-  seen?: string[];         // sessions it was laid down or confirmed in
-  considered?: number;     // "self": how many sessions it had when last weighed for becoming core
-  promoted?: number | null; // "self" that became a core belief: when
 }
 
 export interface Doubt {

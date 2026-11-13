@@ -77,7 +77,6 @@ export interface SpeechSpec {
   speed: number;
   model: string;   // OpenRouter speech model (unused for Kokoro)
   style: string;   // OpenRouter delivery instructions (unused for Kokoro)
-  mood?: string;   // the Voice's stage direction for one reply (OpenRouter only)
 }
 
 /** The voice part of a chunk name: Kokoro voices as they are; OpenRouter voice
@@ -88,9 +87,7 @@ export const voiceId = (s: SpeechSpec) => (s.engine === "kokoro" ? s.voice : "or
  * OpenRouter, the model and style), so stored audio is never reused for a
  * different text or a different way of saying it. */
 export async function chunkName(spec: SpeechSpec, index: number, text: string): Promise<string> {
-  // the mood only counts when there is one, so audio made before moods keeps its name
-  const what = spec.engine === "kokoro" ? text
-    : [text, spec.model, spec.voice, spec.style, ...(spec.mood ? [spec.mood] : [])].join("\u0000");
+  const what = spec.engine === "kokoro" ? text : [text, spec.model, spec.voice, spec.style].join("\u0000");
   const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(what));
   const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 8);
   return `${voiceId(spec)}_${clampSpeed(spec.speed).toFixed(1)}_${index}_${hex}.wav`;

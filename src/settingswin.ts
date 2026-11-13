@@ -273,7 +273,7 @@ export class SettingsWindow {
     const memRow = h("div", "row");
     const memBtn = h("button", "ghost", "open memory…");
     memBtn.addEventListener("click", () => { this.close(); this.onMemory(); });
-    memRow.append(h("span", "settings-note", "What Norbert remembers, who it is and what it has found out: "), memBtn);
+    memRow.append(h("span", "settings-note", "What Norbert remembers and believes: "), memBtn);
     body.append(memRow);
 
     const foot = h("div", "editor-foot");

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Brain, howItWent } from "../src/engine/brain";
+import { Brain } from "../src/engine/brain";
 import { FakeLLM } from "../src/engine/llm";
 import { DEFAULT_STYLE, instructions, OpenRouterSpeech } from "../src/speech/openrouter";
 import { SpeechStore, type Engine } from "../src/speech/synth";
 import { chunkName, cleanForSpeech, speechPlan, splitForSpeech, wavBlob, type SpeechSpec } from "../src/speech/text";
-import { fresh, scripted, who } from "./helpers";
+import { fresh, scripted } from "./helpers";
 
 const CHUNK = /^([a-z]{2}_[a-z]+)_(\d\.\d)_(\d{1,3})_([0-9a-f]{8})\.wav$/;
 
@@ -125,49 +125,6 @@ describe("spoken output channel", () => {
     expect(kinds2).toContain("audio_error");
     expect(res2.answer).toBeTruthy();
     expect((await log.sessions())[0].status).toBe("done");
-  });
-
-  it("the Voice says how the reply should sound, from how the thinking went", async () => {
-    const { cfg, db, log, ltm } = await fresh();
-    let voicePrompt = "";
-    const script = (system: string, user: string) => {
-      const out = scripted(system, user);
-      if (who(system) === "Voice") {
-        voicePrompt = user;
-        Object.assign(out, { feeling: "Quietly pleased ", energy: "LOW", pace: "warp speed", timing: "a small smile at the end." });
-      }
-      return out;
-    };
-    const specs: SpeechSpec[] = [];
-    const spy: Engine = { synth: async (_t, spec) => { specs.push(spec); return { wav: wavBlob(new Float32Array(240), 24000), seconds: 0.01 }; } };
-    const res = await new Brain(cfg, new FakeLLM(script), log, ltm, 4, store(db, spy).channel(GEMINI)).run("What is 17 times 3?");
-    expect(voicePrompt).toContain("How it went (for your tone of voice only; never mention it): interest along the way (0 to 10): 1");
-    expect(voicePrompt).toContain("the final check approved it");
-    const output = (await log.events(res.session)).find((e) => e.kind === "output")!;
-    // an unknown pace is dropped; the energy comes from the mood (the temperament's arousal: medium), not the Voice's guess
-    const said = "Quietly pleased, with medium energy. A small smile at the end.";
-    expect(output.data.delivery).toBe(said);
-    expect(output.data.mood).toEqual({ feeling: "Quietly pleased", energy: "medium", pace: "", timing: "a small smile at the end." });
-    expect(voicePrompt).toContain("so your energy is medium.");
-    expect(specs.length).toBeGreaterThan(0);
-    for (const sp of specs) expect(sp.mood).toBe(said);
-    // Kokoro takes no delivery instructions: the mood is left out
-    const kspecs: SpeechSpec[] = [];
-    const kspy: Engine = { synth: async (_t, spec) => { kspecs.push(spec); return { wav: wavBlob(new Float32Array(240), 24000), seconds: 0.01 }; } };
-    await store(db, kspy).channel(KOKORO).deliver("Hi there.", "k1", () => {}, () => false, "wry");
-    expect(kspecs[0].mood).toBeUndefined();
-  });
-
-  it("sums up how it went, and the mood goes into the instructions and the audio's name", async () => {
-    expect(howItWent({ interests: [6, 8, 3], rejections: 2, approved: true, versions: 5, cycles: 9 }))
-      .toBe("How it went (for your tone of voice only; never mention it): interest along the way (0 to 10): 6 → 8 → 3; " +
-        "the final check approved it after sending it back 2 times; 5 versions of the answer over 9 cycles.");
-    expect(howItWent({ interests: [], rejections: 0, approved: false, versions: 1, cycles: 1 }))
-      .toBe("How it went (for your tone of voice only; never mention it): the final check was not convinced; 1 version of the answer over 1 cycle.");
-    expect(instructions("Dry.", 1, "amused; pause before the twist")).toBe("Dry. For this reply: amused; pause before the twist");
-    // audio made before moods keeps its name; a mood makes new audio
-    expect(await chunkName({ ...GEMINI, mood: "" }, 0, "Hi.")).toBe(await chunkName(GEMINI, 0, "Hi."));
-    expect(await chunkName({ ...GEMINI, mood: "wry" }, 0, "Hi.")).not.toBe(await chunkName(GEMINI, 0, "Hi."));
   });
 
   it("makes a missing chunk on demand, once", async () => {

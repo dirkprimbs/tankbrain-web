@@ -9,7 +9,7 @@ import fastYaml from "../config/profiles/fast.yaml?raw";
 import dirksDefaultYaml from "../config/profiles/dirksdefault.yaml?raw";
 import type { Store } from "./store";
 
-export const ABILITIES = new Set(["write_memory", "write_draft", "interest", "verdict", "speak", "remember", "recognise", "size", "feel", "recruit"]);
+export const ABILITIES = new Set(["write_memory", "write_draft", "interest", "verdict", "speak", "remember", "recognise"]);
 export const GRANTS = new Set(["question", "working_memory", "draft", "self"]);
 export const PHASES = new Set(["think", "gate", "speak", "after"]);
 export const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -57,9 +57,6 @@ export interface BrainConfig {
   self: string[]; // the core beliefs a fresh brain starts with
   cycle: Record<string, number>;
   energy: Record<string, number>;
-  /** Which thinking voices join, by kind of question (the recruiting voice judges the kind).
-   * "always" join every time; a voice in no list never sleeps. Empty: everyone, always. */
-  recruit: Record<string, string[]>;
   profile: string;
   embed_model: string;
   input_pos: number[];
@@ -84,11 +81,7 @@ export function validate(cfg: BrainConfig): void {
     bad = diff([...a.posts_to, ...a.subscriptions], (x) => x in cfg.topics);
     if (bad.length) throw new Error(`${a.name}: unknown topics ${bad}`);
   }
-  for (const [kind, names] of Object.entries(cfg.recruit)) {
-    const bad = names.filter((n) => !cfg.agents.has(n) && !cfg.disabled.has(n));
-    if (bad.length) throw new Error(`recruit.${kind}: unknown voices ${bad}`);
-  }
-  for (const ability of ["write_memory", "write_draft", "speak", "verdict", "remember", "recognise", "size", "feel", "recruit"]) {
+  for (const ability of ["write_memory", "write_draft", "speak", "verdict", "remember", "recognise"]) {
     const owners = [...cfg.agents.values()].filter((a) => a.abilities.includes(ability)).map((a) => a.name);
     if (owners.length > 1) throw new Error(`ability ${ability} must have one owner, got ${owners}`);
   }
@@ -156,7 +149,6 @@ export async function load(profile = "diverse", db: Store | null = null, text?: 
     agents, disabled, topics: base.topics, self: (base.self ?? []).map(String),
     cycle: { ...(base.cycle ?? {}), ...(prof.cycle ?? {}) },
     energy: { ...(base.energy ?? {}), ...(prof.energy ?? {}) },
-    recruit: Object.fromEntries(Object.entries<string[]>(prof.recruit ?? base.recruit ?? {}).map(([k, v]) => [k, (v ?? []).map(String)])),
     profile, embed_model: prof.embed_model ?? base.embed_model ?? "",
     input_pos: base.input_pos ?? [0, -0.1, 0],
   };

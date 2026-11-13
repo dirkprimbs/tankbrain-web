@@ -2,8 +2,7 @@
 import type { AgentInfo, TankEvent } from "./types";
 import { GROUP_LABELS } from "./types";
 
-const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting",
-                                       self: "something I found out about myself" };
+const KIND: Record<string, string> = { said: "something I said", believe: "something I believe", interesting: "something I find interesting" };
 /** One memory as a line: an exchange shows what was asked; a belief, where it came from. */
 const memLine = (m: any) => m.kind === "said" && m.question
   ? `asked "${m.question}" → I said: ${m.text}`
@@ -196,43 +195,6 @@ export class Stream {
       case "ready":
         node = this.item(e, "post", `READY · v${d.version}`, "considers the draft finished", "minor");
         break;
-      case "mood": {
-        const how = `${d.valence > 0.15 ? "pleasant" : d.valence < -0.15 ? "unpleasant" : "neutral"}, ${d.arousal > 0.6 ? "stirred up" : d.arousal < 0.3 ? "calm" : "awake"}`;
-        node = d.why === "carried over"
-          ? this.sys(e, `◐ mood carried over: ${d.word} (${how})`)
-          : this.item(e, "post", "FEELS", `${d.word} (${how})  ·  said valence ${d.valence_said}/5, arousal ${d.arousal_said}/10` +
-              (d.curious_about ? `\ncurious about: ${d.curious_about}` : ""), "minor");
-        break;
-      }
-      case "recruited":
-        node = d.woken
-          ? this.sys(e, `⏻ ${d.woken} wakes up: ${d.by} wrote to it`)
-          : this.sys(e, d.kind
-            ? `⏻ a matter of kind "${d.kind}": ${d.awake.join(", ")} think about it${d.asleep.length ? `; ${d.asleep.join(", ")} rest` : ""}`
-            : `⏻ no kind named: everyone thinks about it`);
-        break;
-      case "initiative":
-        node = this.sys(e, `⏻ the resting voices look at the first draft: ` +
-          [d.spoke.length ? `${d.spoke.join(", ")} speak${d.spoke.length === 1 ? "s" : ""} up uninvited` : "",
-           d.silent.length ? `${d.silent.join(", ")} stay${d.silent.length === 1 ? "s" : ""} quiet` : ""].filter(Boolean).join("; "));
-        break;
-      case "size":
-        node = this.item(e, "post", "REPLY SIZE", `${d.size} (at most about ${d.words} words)`, "minor");
-        break;
-      case "settling":
-        node = this.sys(e, `⏚ version ${d.version}: the draft is settling; from now on ${e.agent} only fixes what is wrong or unclear`);
-        break;
-      case "too_long":
-        node = this.item(e, "system", "TOO LONG", `version ${d.version}: ${d.words} words for ${d.size} (about ${d.limit})`, "minor");
-        break;
-      case "length_feedback": {
-        const why = d.stopped ? `stopped after ${d.stopped.heard} of ${d.stopped.of} parts` : `judged from the new message`;
-        const lines = [`last reply (${d.words} words): ${d.verdict}, ${why}`];
-        if (d.learned) lines.push(`${d.learned.new ? "learns" : "more sure"}: "${d.learned.text}" (${d.learned.weight.toFixed(2)})`);
-        if (d.weakened) lines.push(`less sure: "${d.weakened.text}" (${d.weakened.weight.toFixed(2)})`);
-        node = this.item(e, "post", "HOW MUCH THEY WANT", lines.join("\n"), "memory");
-        break;
-      }
       case "edit_failed":
         node = this.item(e, "system", "EDIT NOT APPLIED", (d.failed as any[]).map((f) => `${f.why ?? "passage not found"}: "${f.find}"`).join("\n"), "minor");
         break;
@@ -269,7 +231,6 @@ export class Stream {
         break;
       case "output":
         node = this.item(e, "post", "◀ SPOKEN REPLY", d.text, "output");
-        if (d.delivery) node.append(el("div", "delivery", `said: ${d.delivery}`));
         node.title = "click to show the reply window";
         break;
       case "comes_to_mind":
@@ -293,10 +254,6 @@ export class Stream {
       }
       case "memory_suggested":
         node = this.item(e, "post", "SUGGESTS REMEMBERING", `${KIND[d.kind] ?? d.kind}: ${d.text}`, "memory minor");
-        break;
-      case "promotion":
-        node = this.item(e, "post", d.promoted ? "📌 BECOMES A CORE BELIEF" : "STAYS A DISCOVERY",
-          `"${d.text}"  (held up in ${d.sessions} conversations)\n${d.reason || (d.promoted ? "" : "no clear reason to make it core")}`, "memory");
         break;
       case "memory_stored": {
         const lines: string[] = [];
