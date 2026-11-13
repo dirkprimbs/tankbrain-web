@@ -200,7 +200,8 @@ export class Stream {
         const how = `${d.valence > 0.15 ? "pleasant" : d.valence < -0.15 ? "unpleasant" : "neutral"}, ${d.arousal > 0.6 ? "stirred up" : d.arousal < 0.3 ? "calm" : "awake"}`;
         node = d.why === "carried over"
           ? this.sys(e, `◐ mood carried over: ${d.word} (${how})`)
-          : this.item(e, "post", "FEELS", `${d.word} (${how})  ·  said valence ${d.valence_said}/5, arousal ${d.arousal_said}/10`, "minor");
+          : this.item(e, "post", "FEELS", `${d.word} (${how})  ·  said valence ${d.valence_said}/5, arousal ${d.arousal_said}/10` +
+              (d.curious_about ? `\ncurious about: ${d.curious_about}` : ""), "minor");
         break;
       }
       case "recruited":

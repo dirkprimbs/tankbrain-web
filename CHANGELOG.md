@@ -3,6 +3,13 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.8.0 · 2026-11-13 · Curious about something
+
+- Norbert acts on how it feels. When something makes it curious, it says so and, in a conversation, asks you about it.
+- What it is curious about, and what a conversation shows about it (what it enjoys, how it reacts), is remembered as something it found out about itself, so its personality can actually grow.
+- Its feelings move more: it reports how each moment feels rather than repeating its mood, and the spoken reply's energy follows how stirred up it is.
+- The Inventor joins conversations; nobody sends the notebook keeper errands any more.
+
 ## 1.7.0 · 2026-11-13 · Something to say
 
 - In a conversation Norbert brings something of its own (a reaction, a thought, sometimes a question back) instead of handing your words back to you. Replies that only repeat what you said, or state the obvious, are sent back.

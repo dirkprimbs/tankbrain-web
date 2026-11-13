@@ -144,10 +144,11 @@ describe("spoken output channel", () => {
     expect(voicePrompt).toContain("How it went (for your tone of voice only; never mention it): interest along the way (0 to 10): 1");
     expect(voicePrompt).toContain("the final check approved it");
     const output = (await log.events(res.session)).find((e) => e.kind === "output")!;
-    // an unknown pace is dropped, the rest becomes one stage direction
-    const said = "Quietly pleased, with low energy. A small smile at the end.";
+    // an unknown pace is dropped; the energy comes from the mood (the temperament's arousal: medium), not the Voice's guess
+    const said = "Quietly pleased, with medium energy. A small smile at the end.";
     expect(output.data.delivery).toBe(said);
-    expect(output.data.mood).toEqual({ feeling: "Quietly pleased", energy: "low", pace: "", timing: "a small smile at the end." });
+    expect(output.data.mood).toEqual({ feeling: "Quietly pleased", energy: "medium", pace: "", timing: "a small smile at the end." });
+    expect(voicePrompt).toContain("so your energy is medium.");
     expect(specs.length).toBeGreaterThan(0);
     for (const sp of specs) expect(sp.mood).toBe(said);
     // Kokoro takes no delivery instructions: the mood is left out

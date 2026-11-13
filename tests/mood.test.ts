@@ -6,7 +6,8 @@ import { BASELINE, feel, label, restore } from "../src/engine/mood";
 import { fresh, scripted, who } from "./helpers";
 
 /** The 17 * 3 script, with the Listener naming a kind and the Feeler feeling something. */
-function script(opts: { kind?: string; feel?: { feeling: string; valence: number; arousal: number }; prompts?: Record<string, string[]>;
+function script(opts: { kind?: string; feel?: { feeling: string; valence: number; arousal: number; curious_about?: string };
+                        prompts?: Record<string, string[]>;
 }) {
   return (system: string, user: string) => {
     const out = scripted(system, user);
@@ -99,6 +100,38 @@ describe("mood", () => {
     expect(Math.abs(later.valence - BASELINE.valence)).toBeLessThan(0.02);
     expect(later.word).toBe(label(later.valence, later.arousal));
     expect(label(BASELINE.valence, BASELINE.arousal)).toBe("curious");
+  });
+});
+
+describe("curiosity", () => {
+  it("what the Feeler is curious about makes the reply ask about it, and is remembered as found out about itself", async () => {
+    const { cfg, log, ltm } = await fresh();
+    const prompts: Record<string, string[]> = {};
+    const feelCurious = { feeling: "intrigued", valence: 3, arousal: 7, curious_about: "why people find rhythm pleasing." };
+    const res = await new Brain(cfg, new FakeLLM(script({ feel: feelCurious, prompts })), log, ltm).run("Do you like rhythm?");
+    // the Feeler is asked for the moment's feeling, not the mood so far
+    expect(new Agent(cfg.agents.get("Feeler")!, cfg).systemPrompt()).toContain("not your mood so far");
+    // the voices that speak for the brain hear what it is curious about, and that curious people ask
+    const drafter = prompts.Drafter.at(-1)!;
+    expect(drafter).toContain("They are curious about why people find rhythm pleasing. Curious people ask");
+    const ev = await log.events(res.session);
+    expect(ev.find((e) => e.kind === "mood" && e.agent === "Feeler")!.data.curious_about).toBe("why people find rhythm pleasing");
+    const found = (await ltm.all()).find((m) => m.kind === "self")!;
+    expect(found.text).toBe(`I'm curious about why people find rhythm pleasing: it came up when I was asked "Do you like rhythm?".`);
+    expect(found.from).toEqual(["Feeler"]);
+    // curious again about the same thing later: the same discovery holds up in one more session
+    await new Brain(cfg, new FakeLLM(script({ feel: feelCurious })), log, ltm).run("And poetry?");
+    const again = (await ltm.all()).filter((m) => m.kind === "self");
+    expect(again).toHaveLength(1);
+    expect(again[0].seen).toHaveLength(2);
+  });
+
+  it("Recall is asked what the exchange showed about itself, and the self kind is no longer discouraged", async () => {
+    const { cfg } = await fresh();
+    expect(new Agent(cfg.agents.get("Recall")!, cfg).systemPrompt()).toContain("Leave it empty only if nothing about you came up");
+    expect(new Agent(cfg.agents.get("Drafter")!, cfg).systemPrompt()).toContain("except 'self': when this conversation shows something");
+    expect(cfg.recruit.conversation).toContain("Inventor");
+    for (const a of cfg.agents.values()) expect(a.contacts).not.toContain("Coordinator");
   });
 });
 

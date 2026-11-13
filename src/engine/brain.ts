@@ -1,7 +1,7 @@
 // The brain in the tank: wires voices, board, memory, attention and drive
 // into one session that runs from an inspiration to a spoken reply.
 
-import { Agent, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Size, type SuggestKind } from "./agent";
+import { Agent, moodText, SIZE_WORDS, type LengthFeedback, type Mood, type Output, type Size, type SuggestKind } from "./agent";
 import { Bus, INPUT_TOPIC, type Message } from "./bus";
 import { owner, publicView, type BrainConfig } from "./config";
 import { Energy } from "./energy";
@@ -24,6 +24,9 @@ export const GATE =
   "repeated, missing or out of order), is clearly longer than the reply size calls for, or only hands the " +
   "person's own words back to them without adding anything. " +
   "If you reject, say exactly what must change.";
+
+/** The voice's energy from the mood's arousal. */
+export const energyOf = (arousal: number) => (arousal > 0.6 ? "high" : arousal < 0.3 ? "low" : "medium");
 
 /** How many words a text has. */
 export const wordCount = (t: string) => (t.match(/\S+/g) ?? []).length;
@@ -166,6 +169,7 @@ export class Brain {
   suggestions = new Map<string, { kind: SuggestKind; text: string }>();
   private found: string[] = []; // self-discoveries, for the voices that speak for the brain
   mood: MoodState = restore(null); // how the brain feels; carried over from the last session
+  curiosity = "";                  // what the Feeler is curious about in this matter (the reply asks about it)
   asleep = new Set<string>();      // thinking voices not recruited for this matter (a private message wakes them)
   private recruited = false;
   private initiativeTaken = false; // the resting voices have had their look at the first draft
@@ -228,6 +232,7 @@ export class Brain {
     const inbox = this.bus.unread(agent.name, agent.subs, agent.state.lastSeen);
     const ctx = { question: this.question, workingMemory: this.wm.render(), draft: this.draft.render(), inbox, instruction,
                   self: this.self, lengthNotes: this.lengthNotes, found: this.found, mood: describeMood(this.mood),
+                  curiosity: this.curiosity || undefined,
                   size: this.size ? `About ${this.size} (at most about ${SIZE_WORDS[this.size]} words), judged from what ` +
                     "the person seems to want. Fit the reply to it: keep what answers the question, leave out the rest; " +
                     "they can always ask for more." : undefined };
@@ -299,7 +304,9 @@ export class Brain {
     if (agent.can("recruit") && !this.recruited) this.recruit(agent, out.kind ?? null);
     if (agent.can("feel") && out.feel) {
       this.mood = feel(this.mood, out.feel.valence, out.feel.arousal, out.feel.word);
-      this.emit("mood", agent.name, { ...this.mood, why: "feels", valence_said: out.feel.valence, arousal_said: out.feel.arousal });
+      if (out.feel.curiousAbout && !isPlaceholder(out.feel.curiousAbout)) this.curiosity = out.feel.curiousAbout;
+      this.emit("mood", agent.name, { ...this.mood, why: "feels", valence_said: out.feel.valence, arousal_said: out.feel.arousal,
+                                      ...(out.feel.curiousAbout ? { curious_about: out.feel.curiousAbout } : {}) });
     }
 
     if (agent.can("interest") && out.interest !== null && out.interest !== undefined) {
@@ -380,6 +387,7 @@ export class Brain {
     this.asleep = new Set();
     this.recruited = false;
     this.initiativeTaken = false;
+    this.curiosity = "";
     this.mood = restore(await this.log.lastMood());
     this.sem = new Semaphore(this.cloudConcurrency);
     const t0 = performance.now();
@@ -635,7 +643,23 @@ export class Brain {
         origin: said.id, context: this.question });
       if (m) kept.push({ ...memView(m), from: s.from, reason: k.reason });
     }
-    // what Recall noticed about the brain itself from how the thinking went
+    // what the brain was curious about is something it found out about itself
+    if (this.curiosity) {
+      const text = `I'm curious about ${this.curiosity}: it came up when I was asked "${this.question.slice(0, 80)}".`;
+      const core = `I'm curious about ${this.curiosity}`;
+      const embedding = await ltm.vector(core);
+      const known = await ltm.findSame(core, embedding) ?? (await ltm.all()).find((m) => m.kind === "self" && m.text.startsWith(core)) ?? null;
+      const feeler = owner(this.cfg, "feel") ?? writer;
+      if (known) {
+        const m = await ltm.confirm(known.id, this.session);
+        reinforced.push({ ...memView(m ?? known), from: [feeler] });
+      } else {
+        const m = await ltm.store(writer, "self", text, { weight: 0.45, session: this.session, from: [feeler],
+                                                         embedding, origin: said.id, context: this.question });
+        if (m) kept.push({ ...memView(m), from: [feeler], reason: "what I was curious about" });
+      }
+    }
+    // what Recall noticed about the brain itself, in the exchange or in how the thinking went
     if (noticed && !isPlaceholder(noticed)) {
       const embedding = await ltm.vector(noticed);
       const known = await ltm.findSame(noticed, embedding);
@@ -791,10 +815,15 @@ export class Brain {
       const doubted = gated && approvedVersion !== this.draft.version;
       this.went = howItWent({ interests: this.interests, rejections, approved: gated ? !doubted : null,
                               versions: this.draft.version, cycles: this.cycle });
-      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle, `${doubted ? SPEAK_UNSURE : SPEAK} ${this.went}`);
+      // how much energy the voice has comes from the mood, not from the speaker's guess
+      const energy = energyOf(this.mood.arousal);
+      const [, out] = await this.turn(this.agents.get(speaker)!, this.cycle,
+        `${doubted ? SPEAK_UNSURE : SPEAK} ${this.went} You feel ${describeMood(this.mood)}, so your energy is ${energy}.`);
       answer = out.reply || answer;
-      if (out.reply) delivery = out.delivery ?? "";
-      if (out.reply && out.mood) mood = out.mood;
+      if (out.reply && out.mood) {
+        mood = { ...out.mood, energy };
+        delivery = moodText(mood);
+      }
     }
     // the speech (text) output channel, with how it is meant to sound
     this.emit("output", speaker, { channel: "speech", text: answer, words: wordCount(answer),

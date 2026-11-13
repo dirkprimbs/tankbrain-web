@@ -64,7 +64,7 @@ recruit:
   ideas: [Associator, Inventor, Curator, Coordinator]
   advice: [Associator, Curator, Coordinator]
   opinion: [Associator, Curator, Logician]
-  conversation: [Associator, Curator]
+  conversation: [Associator, Inventor, Curator]
   about me: [Associator, Curator]
 
 energy:
@@ -135,7 +135,7 @@ agents:
     think: false
     subscriptions: [associations, sparks, memories]
     posts_to: [ideas]
-    contacts: [Drafter, Coordinator, Associator]
+    contacts: [Drafter, Associator]
     grants: [question]
     cooldown: 1
     max_posts: 2
@@ -181,7 +181,7 @@ agents:
     options: {num_predict: 2500}
     subscriptions: [inspiration, focus]
     posts_to: [logic]
-    contacts: [Drafter, Critic, Coordinator]
+    contacts: [Drafter, Critic]
     cooldown: 1
     max_posts: 2
     persona: |
@@ -244,7 +244,7 @@ agents:
     options: {num_predict: 1200}
     subscriptions: [inspiration, focus, ideas, logic, plan, critique, memories, telling, feeling]
     posts_to: []        # changes are announced on #draft automatically, with the 'note'
-    contacts: [Critic, Logician, Coordinator, Listener, Storyteller]
+    contacts: [Critic, Logician, Listener, Storyteller]
     grants: [question, working_memory, draft, self]
     abilities: [write_draft]
     max_posts: 1
@@ -356,8 +356,9 @@ agents:
     persona: |
       You are the one who feels. You notice how things land: what whoever raised the
       matter seems to feel (worried, playful, sad, curious, testing), how heavy or light
-      the subject is (a loss, a joke, a delicate matter, a delight), and your own gut
-      reaction to it and to the answer taking shape. You report your feeling honestly.
+      the subject is (a loss, a joke, a delicate matter, a delight), your own gut
+      reaction to it and to the answer taking shape, and what in it makes you curious.
+      You report your feeling honestly.
       When it matters for how the answer should sound, you pin one short note on
       #feeling, such as "They sound worried: be gentle and plain." You never judge
       whether the answer is correct, and you never write it.
