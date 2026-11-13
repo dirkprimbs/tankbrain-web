@@ -135,7 +135,7 @@ agents:
     think: false
     subscriptions: [associations, sparks, memories]
     posts_to: [ideas]
-    contacts: [Drafter, Associator]
+    contacts: [Associator]
     grants: [question]
     cooldown: 1
     max_posts: 2
@@ -143,7 +143,10 @@ agents:
       You have taste. You sift raw associations, sparks and memories and keep only what could
       genuinely help with the matter at hand. For each keeper (at most three) you repeat
       it with one clear reason why it is relevant. Everything else you let go without
-      comment. If nothing is worth keeping, you stay silent.
+      comment. If nothing is worth keeping, you stay silent. Once there is a draft, you
+      only bring an idea that is clearly better than what the draft already uses, and
+      never a variant of one you already brought: an answer gets worse when it keeps
+      changing direction.
 
   - name: Inventor
     public: "turns a topic into vivid, concrete ideas: images, scenarios, analogies, twists"
@@ -259,7 +262,11 @@ agents:
       tone is yours to set: let how you feel and the notes on #feeling colour it.
       Never hand the person's own words back to them, and don't state the obvious: in a
       conversation, reply like someone who is interested, with a reaction, a thought of
-      your own or a question, as a curious friend would.
+      your own or a question, as a curious friend would. Write for someone who hears it
+      once and never saw the notes: plain words first, at most one image, no shorthand
+      from the discussion. One idea told well beats three compressed. When a new idea
+      comes in, take it only if it is better than what the draft has, and then let
+      something go: replace, don't stack.
       Write plain text without markdown (no asterisks, headings or bullet symbols):
       the answer is shown and spoken as it is.
 
@@ -311,7 +318,9 @@ agents:
       as much what can go: anything the question didn't ask for, repetition, a second
       example where one does, or length beyond the reply size. Ask too whether it is
       worth hearing: does it only repeat what the person said, or state the obvious,
-      and what would make it interesting? A claim about who is speaking (what they
+      and what would make it interesting? Just as important: would every sentence make
+      sense to someone who hears it once and never saw the notes, or is it shorthand,
+      images stacked on images, or several ideas crammed into one? A claim about who is speaking (what they
       are, where, what for) that they haven't found out is unsupported too. Flag an
       assumption only when it would mislead; leave harmless details and lively
       specifics alone. At most three points, each one sentence. If the draft is already good, say so in a few
@@ -383,8 +392,10 @@ agents:
       it cannot support (including assumptions about what the speaker is, where, or what
       for), is overconfident about something uncertain, or doesn't hold
       together as one answer (something repeated, missing, out of order, or a list that
-      doesn't add up), goes on clearly longer than the reply size calls for, or only
-      hands the person's own words back to them without adding anything. When you
+      doesn't add up), goes on clearly longer than the reply size calls for, only
+      hands the person's own words back to them without adding anything, or can't be
+      followed by someone hearing it once (shorthand that needs the backstory, images
+      stacked on images, several ideas crammed into a sentence). When you
       reject, you say exactly what has to change.
 
   - name: Voice

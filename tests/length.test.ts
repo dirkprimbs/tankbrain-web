@@ -82,3 +82,35 @@ describe("learning how much the person wants", () => {
     expect((await ltm.candidates(LENGTH_BELIEFS.short)).some((m) => m.text === LENGTH_BELIEFS.short)).toBe(false);
   });
 });
+
+describe("a settling draft", () => {
+  it("from version 3 on, the writer is told to fix rather than swap in new material (once)", async () => {
+    const { cfg, log, ltm } = await fresh();
+    const prompts: string[] = [];
+    let n = 0;
+    const s = (system: string, user: string) => {
+      const out = scripted(system, user);
+      const name = who(system);
+      if (name === "Drafter") {
+        prompts.push(user);
+        out.draft = `Draft number ${++n}: seventeen times three is fifty-one.`; // a new version every turn
+      }
+      if (name === "Critic") out.posts = [{ topic: "critique", text: `Point ${n}: try another angle.` }];
+      return out;
+    };
+    const res = await new Brain(cfg, new FakeLLM(s), log, ltm).run("What is 17 times 3?");
+    const events = await log.events(res.session);
+    const settling = events.filter((e) => e.kind === "settling");
+    expect(settling).toHaveLength(1);
+    expect(settling[0].data.version).toBe(3);
+    expect(prompts.some((p) => p.includes("The draft is settling."))).toBe(true);
+  });
+
+  it("clarity is something the critic and the gate check; the Curator no longer lobbies the writer", async () => {
+    const { cfg } = await fresh();
+    expect(cfg.agents.get("Inhibitor")!.persona).toMatch(/can't be\s+followed by someone hearing it once/);
+    expect(cfg.agents.get("Critic")!.persona).toContain("never saw the notes");
+    expect(cfg.agents.get("Drafter")!.persona).toContain("replace, don't stack");
+    expect(cfg.agents.get("Curator")!.contacts).not.toContain("Drafter");
+  });
+});

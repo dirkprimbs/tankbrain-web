@@ -219,6 +219,9 @@ export class Stream {
       case "size":
         node = this.item(e, "post", "REPLY SIZE", `${d.size} (at most about ${d.words} words)`, "minor");
         break;
+      case "settling":
+        node = this.sys(e, `⏚ version ${d.version}: the draft is settling; from now on ${e.agent} only fixes what is wrong or unclear`);
+        break;
       case "too_long":
         node = this.item(e, "system", "TOO LONG", `version ${d.version}: ${d.words} words for ${d.size} (about ${d.limit})`, "minor");
         break;

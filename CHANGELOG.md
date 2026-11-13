@@ -3,6 +3,11 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.8.1 · 2026-11-13 · Said so you can follow it
+
+- Fixed: replies could turn into dense, riddling shorthand when the voices kept swapping in new ideas. Norbert now writes for someone hearing it once: plain words, one idea told well, no leftovers from its inner discussion. A reply that can't be followed is sent back.
+- Once a draft has gone through a few versions it settles: from then on only what is wrong or unclear gets fixed.
+
 ## 1.8.0 · 2026-11-13 · Curious about something
 
 - Norbert acts on how it feels. When something makes it curious, it says so and, in a conversation, asks you about it.

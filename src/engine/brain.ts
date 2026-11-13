@@ -22,7 +22,8 @@ export const GATE =
   "Approve if it answers it well. Reject only for a real problem: it misses the question, contains a clear " +
   "error, makes unsupported claims (including assumptions about what the speaker is, where or what for), is badly overconfident, or doesn't read as one coherent answer (parts " +
   "repeated, missing or out of order), is clearly longer than the reply size calls for, or only hands the " +
-  "person's own words back to them without adding anything. " +
+  "person's own words back to them without adding anything, or can't be followed by someone hearing it once " +
+  "(shorthand that needs the backstory, images stacked on images, several ideas crammed into a sentence). " +
   "If you reject, say exactly what must change.";
 
 /** The voice's energy from the mood's arousal. */
@@ -33,6 +34,9 @@ export const wordCount = (t: string) => (t.match(/\S+/g) ?? []).length;
 /** The size a reply of n words turned out to be. */
 export const sizeOf = (n: number): Size => (n <= 35 ? "a sentence" : n <= 90 ? "a few sentences" : n <= 180 ? "a paragraph" : "long");
 const TOO_LONG = 1.5;          // a version this many times its size's words gets a note
+export const SETTLE_AT = 3;    // from this version on the draft is settling: fix, don't swap in new material
+export const SETTLING = "The draft is settling. From now on fix only what is wrong or unclear; don't swap in new " +
+  "ideas or examples. If it is good, mark it ready.";
 export const LEARN_STEP = 0.15; // how much one piece of feedback strengthens a length belief
 export const SPEAK =
   "Say the answer now, based on the current draft. Speak directly and naturally to whoever raised the matter. " +
@@ -347,6 +351,11 @@ export class Brain {
         `${SIZE_WORDS[this.size]} words). Cut it down: keep what answers the question and drop the rest.`;
       const msg = this.bus.add(cycle, "draft", "signal", text, { to: agent.name });
       this.emit("too_long", agent.name, { version: v, words, size: this.size, limit: SIZE_WORDS[this.size], id: msg.id, text });
+    }
+    // a draft that keeps changing direction gets worse: from SETTLE_AT on, the writer only fixes
+    if (v === SETTLE_AT) {
+      const msg = this.bus.add(cycle, "draft", "signal", SETTLING, { to: agent.name });
+      this.emit("settling", agent.name, { version: v, id: msg.id, text: SETTLING });
     }
     // what this version is a response to: everything the Drafter read this turn
     const sources = inbox.filter((m) => m.kind !== "input")
