@@ -35,7 +35,8 @@ Hover a voice on the brain to see its job and state, click it to change its mode
 the stream by voice or group, and open the draft panel to see each version, what changed and why.</p>
 
 <p class="about-source">The source code is open: <a href="https://github.com/dirkprimbs/tankbrain-web" target="_blank"
-rel="noopener">github.com/dirkprimbs/tankbrain-web</a></p>
+rel="noopener">github.com/dirkprimbs/tankbrain-web</a><br>
+Contact: <a href="mailto:dirk@primbs.ca">dirk@primbs.ca</a></p>
 `;
 
 export class AboutWindow {

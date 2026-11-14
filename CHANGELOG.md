@@ -3,6 +3,10 @@
 What changed for visitors, newest first. The page shows the entries a returning
 visitor hasn't seen yet, so keep each one short and plain.
 
+## 1.9.1 · 2026-11-14 · Contact
+
+- "? WHAT IS THIS" now ends with a contact address: dirk@primbs.ca.
+
 ## 1.9.0 · 2026-11-13 · Back to basics
 
 - Norbert thinks the way it did in 1.1 again. The changes from 1.2 to 1.8 (reply sizes, the Feeler and mood, recruiting voices, self-discovery, curiosity, the voice's moods) added up to replies that were less clear, so they are out until each can be tried on its own.
